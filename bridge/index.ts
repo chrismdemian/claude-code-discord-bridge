@@ -57,7 +57,7 @@ async function main() {
         startedAt: sessionInfo.startedAt,
         forumPostId: post.id,
         threadId: post.id,
-        model: "unknown",
+        model: "unknown", // resolved from first transcript entry in Phase 3
         status: "active",
         hasChannelPlugin: false,
         cost: 0,

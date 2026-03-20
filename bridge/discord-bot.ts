@@ -67,25 +67,27 @@ export async function setupServer(
   const channels = await guild.channels.fetch();
 
   // --- Category ---
-  let category = channels.find(
-    (ch) => ch?.name === CATEGORY_NAME && ch.type === ChannelType.GuildCategory,
-  );
-  if (!category) {
-    console.log(`${LOG_PREFIX} Creating category: ${CATEGORY_NAME}`);
-    category = await guild.channels.create({
-      name: CATEGORY_NAME,
-      type: ChannelType.GuildCategory,
-    });
-  } else {
-    console.log(`${LOG_PREFIX} Found existing category: ${CATEGORY_NAME}`);
-  }
+  const category =
+    channels.find(
+      (ch) =>
+        ch?.name === CATEGORY_NAME && ch.type === ChannelType.GuildCategory,
+    ) ??
+    (await (async () => {
+      console.log(`${LOG_PREFIX} Creating category: ${CATEGORY_NAME}`);
+      return guild.channels.create({
+        name: CATEGORY_NAME,
+        type: ChannelType.GuildCategory,
+      });
+    })());
+  if (category.name === CATEGORY_NAME)
+    console.log(`${LOG_PREFIX} Using category: ${CATEGORY_NAME}`);
 
   // --- Forum channel ---
   let forumChannel = channels.find(
     (ch) =>
       ch?.name === FORUM_CHANNEL_NAME &&
       ch.type === ChannelType.GuildForum &&
-      ch.parentId === category!.id,
+      ch.parentId === category.id,
   ) as ForumChannel | undefined;
 
   if (!forumChannel) {
@@ -97,7 +99,7 @@ export async function setupServer(
     forumChannel = (await guild.channels.create({
       name: FORUM_CHANNEL_NAME,
       type: ChannelType.GuildForum,
-      parent: category!.id,
+      parent: category.id,
       availableTags: tags,
     })) as ForumChannel;
   } else {
@@ -128,48 +130,42 @@ export async function setupServer(
   }
 
   // --- Dashboard channel ---
-  let dashboard = channels.find(
-    (ch) =>
-      ch?.name === DASHBOARD_CHANNEL_NAME &&
-      ch.type === ChannelType.GuildText &&
-      ch.parentId === category!.id,
-  );
-  if (!dashboard) {
-    console.log(
-      `${LOG_PREFIX} Creating text channel: ${DASHBOARD_CHANNEL_NAME}`,
-    );
-    dashboard = await guild.channels.create({
-      name: DASHBOARD_CHANNEL_NAME,
-      type: ChannelType.GuildText,
-      parent: category!.id,
-    });
-  } else {
-    console.log(
-      `${LOG_PREFIX} Found existing text channel: ${DASHBOARD_CHANNEL_NAME}`,
-    );
-  }
+  const dashboard =
+    channels.find(
+      (ch) =>
+        ch?.name === DASHBOARD_CHANNEL_NAME &&
+        ch.type === ChannelType.GuildText &&
+        ch.parentId === category.id,
+    ) ??
+    (await (async () => {
+      console.log(
+        `${LOG_PREFIX} Creating text channel: ${DASHBOARD_CHANNEL_NAME}`,
+      );
+      return guild.channels.create({
+        name: DASHBOARD_CHANNEL_NAME,
+        type: ChannelType.GuildText,
+        parent: category.id,
+      });
+    })());
 
   // --- Alerts channel ---
-  let alerts = channels.find(
-    (ch) =>
-      ch?.name === ALERTS_CHANNEL_NAME &&
-      ch.type === ChannelType.GuildText &&
-      ch.parentId === category!.id,
-  );
-  if (!alerts) {
-    console.log(
-      `${LOG_PREFIX} Creating text channel: ${ALERTS_CHANNEL_NAME}`,
-    );
-    alerts = await guild.channels.create({
-      name: ALERTS_CHANNEL_NAME,
-      type: ChannelType.GuildText,
-      parent: category!.id,
-    });
-  } else {
-    console.log(
-      `${LOG_PREFIX} Found existing text channel: ${ALERTS_CHANNEL_NAME}`,
-    );
-  }
+  const alerts =
+    channels.find(
+      (ch) =>
+        ch?.name === ALERTS_CHANNEL_NAME &&
+        ch.type === ChannelType.GuildText &&
+        ch.parentId === category.id,
+    ) ??
+    (await (async () => {
+      console.log(
+        `${LOG_PREFIX} Creating text channel: ${ALERTS_CHANNEL_NAME}`,
+      );
+      return guild.channels.create({
+        name: ALERTS_CHANNEL_NAME,
+        type: ChannelType.GuildText,
+        parent: category.id,
+      });
+    })());
 
   // --- Webhooks on forum channel ---
   const existingWebhooks = await forumChannel.fetchWebhooks();
@@ -180,8 +176,6 @@ export async function setupServer(
     if (!wh) {
       console.log(`${LOG_PREFIX} Creating webhook: ${name}`);
       wh = await forumChannel.createWebhook({ name });
-    } else {
-      console.log(`${LOG_PREFIX} Found existing webhook: ${name}`);
     }
     if (!wh.token) {
       console.warn(
@@ -193,12 +187,12 @@ export async function setupServer(
     webhooks[name.toLowerCase()] = { id: wh.id, token: wh.token! };
   }
 
-  const config: DiscordConfig = {
+  const discordConfig: DiscordConfig = {
     guildId,
     forumChannelId: forumChannel.id,
-    dashboardChannelId: dashboard!.id,
-    alertsChannelId: alerts!.id,
-    categoryId: category!.id,
+    dashboardChannelId: dashboard.id,
+    alertsChannelId: alerts.id,
+    categoryId: category.id,
     webhooks: {
       claude: webhooks.claude,
       terminal: webhooks.terminal,
@@ -210,7 +204,7 @@ export async function setupServer(
   };
 
   console.log(`${LOG_PREFIX} Server setup complete`);
-  return config;
+  return discordConfig;
 }
 
 /** Build a map from our FORUM_TAGS keys to Discord-assigned tag IDs */
