@@ -93,27 +93,26 @@ export function login(client: Client, token: string): Promise<void> {
   });
 }
 
-/** Validate that required privileged intents are enabled after login */
+/**
+ * Defensive self-check: verify the client was constructed with all required intents.
+ * This guards against code drift (e.g. someone removing an intent from createClient()).
+ * The actual Discord-side rejection is caught by the shardError handler in login().
+ */
 export function validateIntents(client: Client): void {
   const intents = new IntentsBitField(client.options.intents);
-  const required: { bit: GatewayIntentBits; name: string; privileged: boolean }[] = [
-    { bit: GatewayIntentBits.Guilds, name: "Guilds", privileged: false },
-    { bit: GatewayIntentBits.GuildMessages, name: "Guild Messages", privileged: false },
-    { bit: GatewayIntentBits.MessageContent, name: "Message Content", privileged: true },
+  const required: { bit: GatewayIntentBits; name: string }[] = [
+    { bit: GatewayIntentBits.Guilds, name: "Guilds" },
+    { bit: GatewayIntentBits.GuildMessages, name: "Guild Messages" },
+    { bit: GatewayIntentBits.MessageContent, name: "Message Content" },
   ];
 
-  for (const { bit, name, privileged } of required) {
-    if (!intents.has(bit)) {
-      const hint = privileged
-        ? ` Go to https://discord.com/developers/applications → Your App → Bot → Enable '${name} Intent'.`
-        : "";
-      console.error(
-        `${LOG_PREFIX} ERROR: Required intent '${name}' is missing.${hint} The bridge cannot function without it.`,
-      );
-      process.exit(1);
-    }
+  const missing = required.filter(({ bit }) => !intents.has(bit));
+  if (missing.length > 0) {
+    console.error(
+      `${LOG_PREFIX} ERROR: Client is missing required intents: ${missing.map((m) => m.name).join(", ")}. Fix createClient() in discord-bot.ts.`,
+    );
+    process.exit(1);
   }
-  console.log(`${LOG_PREFIX} All required intents verified`);
 }
 
 /** Set up guild structure (idempotent: finds existing before creating) */

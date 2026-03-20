@@ -18,7 +18,7 @@ Walk the user through setting up the Discord bridge.
    ```
    1. Create New Application → name it "Claude"
    2. Go to Bot → Reset Token → copy it
-   3. Under Bot → enable Server Members Intent + Message Content Intent
+   3. Under Bot → Privileged Gateway Intents → enable Message Content Intent
    4. Paste your token below:
    ```
 
