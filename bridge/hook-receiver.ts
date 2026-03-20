@@ -26,6 +26,7 @@ import {
   buildTimeoutEmbed,
 } from "./interactions/permission-handler";
 
+
 /** Map URL slugs from hooks.json to canonical hook type names */
 const SLUG_TO_HOOK: Record<string, string> = {
   "session-start": "SessionStart",
@@ -492,6 +493,29 @@ export class HookReceiver {
     if (!session) return { ok: true };
 
     const key = payload.key ?? "unknown";
+
+    // Detect plan mode activation/deactivation
+    if (key === "permissionMode" || key === "permission_mode" || key === "defaultMode") {
+      const value = String(payload.value ?? "");
+      if (value === "plan") {
+        session.planMode = true;
+        session.planSteps = [];
+        session.planMessageId = null;
+        session.planTitle = "";
+        session.planCurrentStep = -1;
+        session.planLastEditAt = 0;
+        await this.sender.sendAsWebhook(
+          "system",
+          session.forumPostId,
+          "📋 Plan mode activated",
+        );
+      } else if (session.planMode) {
+        // Exiting plan mode — keep planSteps/planMessageId for execution tracking
+        session.planMode = false;
+      }
+      return { ok: true };
+    }
+
     await this.sender.sendAsWebhook(
       "system",
       session.forumPostId,

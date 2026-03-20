@@ -49,5 +49,8 @@ export const ALERTS_CHANNEL_NAME = "alerts";
 export const MAX_CONTENT_LENGTH = 1900;
 export const MAX_EMBED_DESCRIPTION = 4000;
 
+// Plan mode
+export const PLAN_EDIT_THROTTLE_MS = 3000;
+
 // Logging
 export const LOG_PREFIX = "[discord-bridge]";

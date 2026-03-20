@@ -27,6 +27,13 @@ export interface BridgeSession {
   transcriptPath: string;
   transcriptOffset: number;
   workingMessageId: string | null;
+  // Plan mode state
+  planMode: boolean;
+  planSteps: PlanStep[];
+  planMessageId: string | null;
+  planTitle: string;
+  planCurrentStep: number; // -1 = not executing, 0+ = current step index
+  planLastEditAt: number; // timestamp of last progress embed edit (throttling)
 }
 
 /** Discord resource IDs stored after setup */
@@ -270,6 +277,12 @@ export interface WorktreeCreateHook {
 export interface WorktreeRemoveHook {
   session_id: string;
   name?: string;
+}
+
+/** A single step in a plan */
+export interface PlanStep {
+  description: string;
+  status: "pending" | "working" | "done";
 }
 
 /** Access control configuration */

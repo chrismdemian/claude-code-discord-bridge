@@ -2,6 +2,7 @@ import * as path from "node:path";
 import {
   Client,
   GatewayIntentBits,
+  Partials,
   ChannelType,
   EmbedBuilder,
   ActivityType,
@@ -11,6 +12,7 @@ import {
   type ThreadChannel,
 } from "discord.js";
 import type { DiscordConfig, WebhookRef } from "./types";
+import { buildNewPromptButton } from "./interactions/modal-handler";
 import {
   COLORS,
   FORUM_TAGS,
@@ -32,6 +34,7 @@ export function createClient(): Client {
       GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.DirectMessages,
     ],
+    partials: [Partials.Message, Partials.Reaction, Partials.User],
   });
 }
 
@@ -273,9 +276,11 @@ export async function createForumPost(
     if (tagMap[modelKey]) appliedTags.push(tagMap[modelKey]);
   }
 
+  const buttonRow = buildNewPromptButton(session.sessionId);
+
   const post = await forumChannel.threads.create({
     name: postName,
-    message: { embeds: [embed] },
+    message: { embeds: [embed], components: [buttonRow] },
     appliedTags,
     autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
   });

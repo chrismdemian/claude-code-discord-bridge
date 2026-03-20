@@ -17,8 +17,32 @@ import {
   buildResolvedEmbed,
 } from "./interactions/permission-handler";
 import {
+  handleStopInteraction,
+  buildWorkingMessage,
+  buildInterruptedMessage,
+} from "./interactions/stop-handler";
+import { handleFileAttachment } from "./interactions/file-handler";
+import { showPromptModal, handleModalSubmit } from "./interactions/modal-handler";
+import { registerCommands, handleCommand } from "./interactions/commands";
+import { handleReactionAdd } from "./interactions/reactions";
+import {
+  handlePlanExecute,
+  handlePlanModify,
+  handlePlanModifySubmit,
+  handlePlanClear,
+  handlePlanChat,
+} from "./interactions/plan-handler";
+import {
+  extractPlanTitle,
+  parsePlanSteps,
+  buildPlanEmbed,
+  buildPlanProgressEmbed,
+  buildPlanCompletedEmbed,
+} from "./formatters/plan-formatter";
+import {
   Events,
   EmbedBuilder,
+  type Client,
   type ThreadChannel,
 } from "discord.js";
 import type {
@@ -29,7 +53,7 @@ import type {
   ToolUseBlock,
   ToolResultBlock,
 } from "./types";
-import { LOG_PREFIX, BRIDGE_PORT, COLORS } from "./constants";
+import { LOG_PREFIX, COLORS, PLAN_EDIT_THROTTLE_MS } from "./constants";
 import { formatToolCall, formatToolResult } from "./formatter";
 import {
   formatAssistantText,
@@ -72,7 +96,10 @@ async function main() {
   // 6. Create hook receiver
   const hookReceiver = new HookReceiver(sessions, messageSender, client, discordConfig);
 
-  // 7. Start session scanner
+  // 7. Register slash commands
+  await registerCommands(config.token, client.user!.id, config.guildId);
+
+  // 8. Start session scanner
   const scanner = new SessionScanner();
 
   scanner.on("session:discovered", async (sessionInfo) => {
@@ -101,6 +128,13 @@ async function main() {
         lastActivity: Date.now(),
         transcriptPath: sessionInfo.transcriptPath,
         transcriptOffset: 0,
+        workingMessageId: null,
+        planMode: false,
+        planSteps: [],
+        planMessageId: null,
+        planTitle: "",
+        planCurrentStep: -1,
+        planLastEditAt: 0,
       };
 
       // Plugin may have registered before scanner found the session
@@ -122,7 +156,7 @@ async function main() {
         bridgeSession.transcriptOffset,
       );
       tailers.set(sessionInfo.sessionId, tailer);
-      wireTranscriptEvents(tailer, bridgeSession, messageSender);
+      wireTranscriptEvents(tailer, bridgeSession, messageSender, client);
       tailer.start();
     } catch (err) {
       console.error(
@@ -145,6 +179,11 @@ async function main() {
         tailers.delete(sessionInfo.sessionId);
       }
 
+      // Clean up working message
+      if (bridgeSession.workingMessageId) {
+        await clearWorkingMessage(client, bridgeSession);
+      }
+
       // Deny any pending permission request so the hook script unblocks
       if (hookReceiver.hasPendingPermission(sessionInfo.sessionId)) {
         await hookReceiver.clearPendingPermission(sessionInfo.sessionId);
@@ -163,7 +202,7 @@ async function main() {
 
   scanner.start();
 
-  // 8. Start MCP relay HTTP server
+  // 9. Start MCP relay HTTP server
   const httpServer = Bun.serve({
     port: config.bridgePort,
     async fetch(req) {
@@ -248,113 +287,286 @@ async function main() {
 
   console.log(`${LOG_PREFIX} HTTP server listening on port ${config.bridgePort}`);
 
-  // 9. Listen for Discord messages in forum posts → route to Claude Code
+  // 10. Resolve guild owner for access control (needed by message + interaction handlers)
+  const guild = await client.guilds.fetch(discordConfig.guildId);
+  const guildOwnerId = guild.ownerId;
+
+  // 11. Listen for Discord messages in forum posts → route to Claude Code
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
     if (!message.channel.isThread()) return;
 
+    // Access control: only guild owner can send messages/files
+    if (message.author.id !== guildOwnerId) return;
+
     const session = findSessionByForumPostId(message.channel.id);
     if (!session) return;
 
-    if (relay.hasPlugin(session.sessionId)) {
-      relay.enqueueMessage(session.sessionId, message.content, message.author.id);
-      await message.react("✅").catch(() => {});
-    } else {
-      await message
-        .reply("📖 This session is read-only (no channel plugin connected).")
-        .catch(() => {});
+    // Handle file attachments
+    if (message.attachments.size > 0) {
+      await handleFileAttachment(message, session).catch((err) => {
+        console.error(`${LOG_PREFIX} File handler error:`, err);
+      });
+    }
+
+    // Relay text content to Claude
+    if (message.content.trim()) {
+      if (relay.hasPlugin(session.sessionId)) {
+        relay.enqueueMessage(session.sessionId, message.content, message.author.id);
+        await message.react("✅").catch(() => {});
+      } else if (message.attachments.size === 0) {
+        // Only show read-only notice if there were no attachments (file handler already responds)
+        await message
+          .reply("📖 This session is read-only (no channel plugin connected).")
+          .catch(() => {});
+      }
     }
   });
 
-  // 10. Listen for Discord button interactions (permission approve/deny)
-  const guild = await client.guilds.fetch(discordConfig.guildId);
-  const guildOwnerId = guild.ownerId;
-
+  // 12. Listen for all Discord interactions (buttons, modals, slash commands)
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isButton()) return;
-
-    const customId = interaction.customId;
-
-    // Only permission buttons for now (all start with "perm_")
-    if (!customId.startsWith("perm_")) return;
-
-    // Access control: only the guild owner can approve/deny permissions
-    if (interaction.user.id !== guildOwnerId) {
-      await interaction.reply({
-        content: "Only the server owner can approve or deny permission requests.",
-        ephemeral: true,
-      }).catch(() => {});
-      return;
-    }
-
     try {
-      // Permission: Approve
-      if (customId.startsWith("perm_approve_")) {
-        const sessionId = customId.slice("perm_approve_".length);
-        const pending = hookReceiver.getPendingPermission(sessionId);
-        if (!pending) {
+      // ── Slash Commands ──
+      if (interaction.isChatInputCommand()) {
+        await handleCommand(
+          interaction,
+          sessions,
+          findSessionByForumPostId,
+          hookReceiver,
+          relay,
+          client,
+          discordConfig,
+          guildOwnerId,
+        );
+        return;
+      }
+
+      // ── Modal Submits ──
+      if (interaction.isModalSubmit()) {
+        const customId = interaction.customId;
+
+        // Access control for all modals
+        if (interaction.user.id !== guildOwnerId) {
           await interaction.reply({
-            content: "This permission request has already been resolved or expired.",
+            content: "Only the server owner can interact with Claude Code sessions.",
+            ephemeral: true,
+          }).catch(() => {});
+          return;
+        }
+
+        if (customId.startsWith("prompt_modal_")) {
+          const sessionId = customId.slice("prompt_modal_".length);
+          await handleModalSubmit(interaction, sessionId, relay, interaction.user.id);
+          return;
+        }
+
+        if (customId.startsWith("plan_modify_modal_")) {
+          const sessionId = customId.slice("plan_modify_modal_".length);
+          const session = sessions.get(sessionId);
+          if (session) {
+            await handlePlanModifySubmit(interaction, session, relay);
+          } else {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+          }
+          return;
+        }
+
+        return;
+      }
+
+      // ── Buttons ──
+      if (interaction.isButton()) {
+        const customId = interaction.customId;
+
+        // Access control for all buttons
+        if (interaction.user.id !== guildOwnerId) {
+          await interaction.reply({
+            content: "Only the server owner can interact with Claude Code sessions.",
+            ephemeral: true,
+          }).catch(() => {});
+          return;
+        }
+
+        // Permission: Approve
+        if (customId.startsWith("perm_approve_")) {
+          const sessionId = customId.slice("perm_approve_".length);
+          const pending = hookReceiver.getPendingPermission(sessionId);
+          if (!pending) {
+            await interaction.reply({
+              content: "This permission request has already been resolved or expired.",
+              ephemeral: true,
+            });
+            return;
+          }
+          hookReceiver.resolvePermission(sessionId, true);
+          const originalEmbed = interaction.message.embeds[0];
+          if (originalEmbed) {
+            await interaction.update({
+              embeds: [buildResolvedEmbed(originalEmbed, true)],
+              components: [],
+            });
+          } else {
+            await interaction.update({ components: [] });
+          }
+          return;
+        }
+
+        // Permission: Deny
+        if (customId.startsWith("perm_deny_")) {
+          const sessionId = customId.slice("perm_deny_".length);
+          const pending = hookReceiver.getPendingPermission(sessionId);
+          if (!pending) {
+            await interaction.reply({
+              content: "This permission request has already been resolved or expired.",
+              ephemeral: true,
+            });
+            return;
+          }
+          hookReceiver.resolvePermission(sessionId, false);
+          const originalEmbed = interaction.message.embeds[0];
+          if (originalEmbed) {
+            await interaction.update({
+              embeds: [buildResolvedEmbed(originalEmbed, false)],
+              components: [],
+            });
+          } else {
+            await interaction.update({ components: [] });
+          }
+          return;
+        }
+
+        // Permission: Show Context
+        if (customId.startsWith("perm_context_")) {
+          const sessionId = customId.slice("perm_context_".length);
+          const pending = hookReceiver.getPendingPermission(sessionId);
+          const toolInput = pending?.toolInput ?? {};
+          const toolName = pending?.toolName ?? "unknown";
+          const inputJson = JSON.stringify(toolInput, null, 2);
+          const truncated = inputJson.length > 1800
+            ? inputJson.slice(0, 1800) + "\n..."
+            : inputJson;
+          await interaction.reply({
+            content: `**Tool:** ${toolName}\n\`\`\`json\n${truncated}\n\`\`\``,
             ephemeral: true,
           });
           return;
         }
-        hookReceiver.resolvePermission(sessionId, true);
-        const originalEmbed = interaction.message.embeds[0];
-        if (originalEmbed) {
-          await interaction.update({
-            embeds: [buildResolvedEmbed(originalEmbed, true)],
-            components: [],
-          });
-        } else {
-          await interaction.update({ components: [] });
-        }
-        return;
-      }
 
-      // Permission: Deny
-      if (customId.startsWith("perm_deny_")) {
-        const sessionId = customId.slice("perm_deny_".length);
-        const pending = hookReceiver.getPendingPermission(sessionId);
-        if (!pending) {
-          await interaction.reply({
-            content: "This permission request has already been resolved or expired.",
-            ephemeral: true,
-          });
+        // Stop button
+        if (customId.startsWith("stop_")) {
+          const sessionId = customId.slice("stop_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handleStopInteraction(session, relay);
+          await interaction.update(buildInterruptedMessage());
+          session.workingMessageId = null;
           return;
         }
-        hookReceiver.resolvePermission(sessionId, false);
-        const originalEmbed = interaction.message.embeds[0];
-        if (originalEmbed) {
-          await interaction.update({
-            embeds: [buildResolvedEmbed(originalEmbed, false)],
-            components: [],
-          });
-        } else {
-          await interaction.update({ components: [] });
-        }
-        return;
-      }
 
-      // Permission: Show Context
-      if (customId.startsWith("perm_context_")) {
-        const sessionId = customId.slice("perm_context_".length);
-        const pending = hookReceiver.getPendingPermission(sessionId);
-        const toolInput = pending?.toolInput ?? {};
-        const toolName = pending?.toolName ?? "unknown";
-        const inputJson = JSON.stringify(toolInput, null, 2);
-        const truncated = inputJson.length > 1800
-          ? inputJson.slice(0, 1800) + "\n..."
-          : inputJson;
-        await interaction.reply({
-          content: `**Tool:** ${toolName}\n\`\`\`json\n${truncated}\n\`\`\``,
-          ephemeral: true,
-        });
-        return;
+        // New Prompt button → show modal
+        if (customId.startsWith("prompt_new_")) {
+          const sessionId = customId.slice("prompt_new_".length);
+          await showPromptModal(interaction, sessionId);
+          return;
+        }
+
+        // "Ask Claude About This File" button
+        if (customId.startsWith("file_ask_")) {
+          const rest = customId.slice("file_ask_".length);
+          const separatorIdx = rest.indexOf("_");
+          if (separatorIdx === -1) {
+            await interaction.reply({ content: "Invalid file reference.", ephemeral: true });
+            return;
+          }
+          const sessionId = rest.slice(0, separatorIdx);
+          const filename = rest.slice(separatorIdx + 1);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          const filePath = path.join(session.cwd, filename);
+          const prompt = `I just dropped a file at ${filePath}. Please examine it and let me know what you see.`;
+          const sent = relay.enqueueMessage(session.sessionId, prompt, interaction.user.id);
+          if (sent) {
+            await interaction.reply({
+              content: `Asking Claude about \`${filename}\`...`,
+              ephemeral: true,
+            });
+          } else {
+            await interaction.reply({
+              content: "❌ Session is read-only (no channel plugin connected).",
+              ephemeral: true,
+            });
+          }
+          return;
+        }
+
+        // Plan mode buttons
+        if (customId.startsWith("plan_execute_")) {
+          const sessionId = customId.slice("plan_execute_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanExecute(interaction, session, relay);
+          return;
+        }
+
+        if (customId.startsWith("plan_modify_")) {
+          const sessionId = customId.slice("plan_modify_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanModify(interaction, session);
+          return;
+        }
+
+        if (customId.startsWith("plan_clear_")) {
+          const sessionId = customId.slice("plan_clear_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanClear(interaction, session, relay);
+          return;
+        }
+
+        if (customId.startsWith("plan_chat_")) {
+          const sessionId = customId.slice("plan_chat_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanChat(interaction, session);
+          return;
+        }
       }
     } catch (err) {
       console.error(`${LOG_PREFIX} Interaction error:`, err);
     }
+  });
+
+  // 13. Listen for reactions (quick actions)
+  client.on(Events.MessageReactionAdd, async (reaction, user) => {
+    await handleReactionAdd(
+      reaction,
+      user,
+      findSessionByForumPostId,
+      hookReceiver,
+      guildOwnerId,
+      relay,
+    ).catch((err) => {
+      console.error(`${LOG_PREFIX} Reaction error:`, err);
+    });
   });
 
   console.log(`${LOG_PREFIX} Bridge service ready`);
@@ -382,7 +594,7 @@ main().catch((err) => {
   process.exit(1);
 });
 
-// ── MCP relay helpers ─────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────
 
 /** Find a session by its Discord forum post ID */
 function findSessionByForumPostId(id: string): BridgeSession | undefined {
@@ -394,7 +606,7 @@ function findSessionByForumPostId(id: string): BridgeSession | undefined {
 
 /** Update the forum post starter embed when hasChannelPlugin changes */
 async function updateSessionEmbed(
-  client: import("discord.js").Client,
+  client: Client,
   config: DiscordConfig,
   session: BridgeSession,
 ): Promise<void> {
@@ -427,6 +639,24 @@ async function updateSessionEmbed(
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to update session embed:`, err);
   }
+}
+
+/** Delete or clear the working message for a session */
+async function clearWorkingMessage(
+  client: Client,
+  session: BridgeSession,
+): Promise<void> {
+  if (!session.workingMessageId) return;
+  try {
+    const channel = await client.channels.fetch(session.forumPostId);
+    if (channel?.isThread()) {
+      const msg = await (channel as ThreadChannel).messages.fetch(session.workingMessageId);
+      await msg.delete().catch(() => {});
+    }
+  } catch {
+    // Best-effort — message may already be gone
+  }
+  session.workingMessageId = null;
 }
 
 // ── Transcript → Discord routing ──────────────────────────────────────
@@ -467,6 +697,7 @@ function wireTranscriptEvents(
   tailer: TranscriptTailer,
   session: BridgeSession,
   sender: MessageSender,
+  client: Client,
 ): void {
   const threadId = session.forumPostId;
   // Store full tool_use blocks for result correlation
@@ -474,6 +705,11 @@ function wireTranscriptEvents(
 
   tailer.on("entry:assistant", async (entry) => {
     try {
+      // Clear working message when assistant responds
+      if (session.workingMessageId) {
+        await clearWorkingMessage(client, session);
+      }
+
       const msg = entry.message;
       if (!msg?.content) return;
 
@@ -528,6 +764,47 @@ function wireTranscriptEvents(
         await sendFormatted(sender, threadId, formatted);
       }
 
+      // Plan mode: detect plan content in assistant text (only when planMode flag is set)
+      if (session.planMode && textBlocks.length > 0 && toolBlocks.length === 0) {
+        const planText = textBlocks.join("\n\n");
+        const steps = parsePlanSteps(planText);
+
+        if (steps.length > 0) {
+          const title = extractPlanTitle(planText);
+          session.planSteps = steps;
+          session.planTitle = title;
+
+          // Remove buttons from old plan embed if there was one
+          if (session.planMessageId) {
+            try {
+              const ch = await client.channels.fetch(threadId);
+              if (ch?.isThread()) {
+                const oldMsg = await (ch as ThreadChannel).messages.fetch(session.planMessageId).catch(() => null);
+                if (oldMsg) {
+                  await oldMsg.edit({ components: [] }).catch(() => {});
+                }
+              }
+            } catch { /* best-effort */ }
+          }
+
+          // Send plan embed via bot client (not webhook) for button interaction support
+          try {
+            const { embeds, components } = buildPlanEmbed(planText, steps, title, session);
+            const channel = await client.channels.fetch(threadId);
+            if (channel?.isThread()) {
+              const sentMsg = await (channel as ThreadChannel).send({
+                embeds,
+                components,
+                allowedMentions: { parse: [] },
+              });
+              session.planMessageId = sentMsg.id;
+            }
+          } catch (err) {
+            console.error(`${LOG_PREFIX} Failed to send plan embed:`, err);
+          }
+        }
+      }
+
       // Send tool call headers + track for result correlation
       for (const block of toolBlocks) {
         toolUseBlocks.set(block.id, block);
@@ -565,6 +842,19 @@ function wireTranscriptEvents(
         await sendFormatted(sender, threadId, formatted);
         session.turnCount++;
         session.lastActivity = Date.now();
+
+        // Send working indicator with stop button
+        try {
+          const channel = await client.channels.fetch(threadId);
+          if (channel?.isThread()) {
+            const workingMsg = buildWorkingMessage(session.sessionId);
+            const sent = await (channel as ThreadChannel).send(workingMsg);
+            session.workingMessageId = sent.id;
+          }
+        } catch {
+          // Best-effort
+        }
+
         return;
       }
 
@@ -607,6 +897,16 @@ function wireTranscriptEvents(
 
   tailer.on("entry:system", async (entry) => {
     try {
+      // Clear working message on turn_duration (end of turn)
+      if (entry.subtype === "turn_duration" && session.workingMessageId) {
+        await clearWorkingMessage(client, session);
+      }
+
+      // Advance plan execution progress on turn boundaries
+      if (entry.subtype === "turn_duration" && session.planCurrentStep >= 0 && session.planSteps.length > 0) {
+        await advancePlanStep(session, client);
+      }
+
       const formatted = formatSystemEvent(entry, session);
       if (formatted) {
         await sendFormatted(sender, threadId, formatted);
@@ -622,4 +922,47 @@ function wireTranscriptEvents(
       err,
     );
   });
+}
+
+/** Advance plan execution progress and edit the progress embed in-place */
+async function advancePlanStep(
+  session: BridgeSession,
+  client: Client,
+): Promise<void> {
+  if (session.planCurrentStep < 0 || session.planSteps.length === 0 || !session.planMessageId) return;
+
+  // Always mutate state — mark current step done and advance
+  if (session.planCurrentStep < session.planSteps.length) {
+    session.planSteps[session.planCurrentStep].status = "done";
+  }
+
+  const nextStep = session.planCurrentStep + 1;
+  if (nextStep < session.planSteps.length) {
+    session.planSteps[nextStep].status = "working";
+    session.planCurrentStep = nextStep;
+  } else {
+    // All steps done
+    session.planCurrentStep = -1;
+  }
+
+  // Throttle Discord edits only (state mutation already happened)
+  const now = Date.now();
+  if (now - session.planLastEditAt < PLAN_EDIT_THROTTLE_MS) return;
+  session.planLastEditAt = now;
+
+  // Edit the progress embed in-place
+  try {
+    const channel = await client.channels.fetch(session.forumPostId);
+    if (!channel?.isThread()) return;
+    const msg = await (channel as ThreadChannel).messages.fetch(session.planMessageId).catch(() => null);
+    if (!msg) return;
+
+    const embed = session.planCurrentStep === -1
+      ? buildPlanCompletedEmbed(session.planTitle, session.planSteps)
+      : buildPlanProgressEmbed(session.planTitle, session.planSteps);
+
+    await msg.edit({ embeds: [embed] });
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Failed to update plan progress:`, err);
+  }
 }
