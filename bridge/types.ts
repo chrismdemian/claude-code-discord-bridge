@@ -40,13 +40,42 @@ export interface WebhookRef {
   token: string;
 }
 
-/** Transcript JSONL entry */
+/** Transcript JSONL entry (narrow typed version for structured processing) */
 export interface TranscriptEntry {
   type: "assistant" | "user" | "system" | "progress";
   message?: AssistantMessage | UserMessage;
   subtype?: string;
   durationMs?: number;
   agent_progress?: AgentProgress;
+}
+
+/** Union of all content block types */
+export type ContentBlock =
+  | TextBlock
+  | ToolUseBlock
+  | ThinkingBlock
+  | ToolResultBlock;
+
+/** Raw transcript JSONL entry — matches the real file format which has many extra fields */
+export interface RawTranscriptEntry {
+  type: string;
+  subtype?: string;
+  message?: {
+    role?: string;
+    content?: string | ContentBlock[];
+    model?: string;
+    usage?: TokenUsage;
+  };
+  durationMs?: number;
+  uuid?: string;
+  timestamp?: string;
+  parentUuid?: string;
+  isSidechain?: boolean;
+  isMeta?: boolean;
+  sessionId?: string;
+  cwd?: string;
+  customTitle?: string;
+  [key: string]: unknown;
 }
 
 export interface AssistantMessage {
