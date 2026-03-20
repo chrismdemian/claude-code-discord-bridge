@@ -253,7 +253,7 @@ export class HookReceiver {
       )
       .setTimestamp();
 
-    await this.sender.sendEmbed("system", session.forumPostId, embed);
+    await this.sender.sendEmbed("claude", session.forumPostId, embed);
 
     trackForAwaySummary("SessionEnd", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
@@ -316,11 +316,11 @@ export class HookReceiver {
 
     let text = "⏹️ Claude stopped";
     if (payload.last_assistant_message) {
-      const snippet = truncate(payload.last_assistant_message, 200);
+      const snippet = truncate(payload.last_assistant_message, 1500);
       text += `\n> ${snippet}`;
     }
 
-    await this.sender.sendAsWebhook("system", session.forumPostId, text);
+    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
     return { ok: true };
   }
 
@@ -347,7 +347,7 @@ export class HookReceiver {
         value: payload.session_id.slice(0, 18),
         inline: true,
       });
-      await this.sender.sendEmbed("system", session.forumPostId, embed);
+      await this.sender.sendEmbed("claude", session.forumPostId, embed);
     }
 
     // Send to #alerts for high-severity failures
@@ -382,7 +382,7 @@ export class HookReceiver {
       );
     }
 
-    await this.sender.sendEmbed("system", session.forumPostId, embed);
+    await this.sender.sendEmbed("claude", session.forumPostId, embed);
 
     trackForAwaySummary("PostToolUseFailure", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
@@ -396,7 +396,7 @@ export class HookReceiver {
     if (!session) return { ok: true };
 
     await this.sender.sendAsWebhook(
-      "system",
+      "claude",
       session.forumPostId,
       "🗜️ Compacting context...",
     );
@@ -427,7 +427,7 @@ export class HookReceiver {
       embed.setDescription(parts.join("\n"));
     }
 
-    await this.sender.sendEmbed("system", session.forumPostId, embed);
+    await this.sender.sendEmbed("claude", session.forumPostId, embed);
 
     trackForAwaySummary("PostCompact", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
@@ -443,10 +443,10 @@ export class HookReceiver {
     const agentType = payload.agent_type ?? "agent";
     let text = `🤖 Agent spawned: **${agentType}**`;
     if (payload.prompt) {
-      text += `\n> ${truncate(payload.prompt, 150)}`;
+      text += `\n> ${truncate(payload.prompt, 1500)}`;
     }
 
-    await this.sender.sendAsWebhook("system", session.forumPostId, text);
+    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
     return { ok: true };
   }
 
@@ -458,10 +458,10 @@ export class HookReceiver {
 
     let text = "🤖 Agent finished";
     if (payload.result) {
-      text += `\n> ${truncate(payload.result, 200)}`;
+      text += `\n> ${truncate(payload.result, 1500)}`;
     }
 
-    await this.sender.sendAsWebhook("system", session.forumPostId, text);
+    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
     return { ok: true };
   }
 
@@ -473,9 +473,9 @@ export class HookReceiver {
 
     const notifType = payload.notification_type ?? "notification";
     const message = payload.message ?? "";
-    const text = `🔔 **${notifType}**: ${truncate(message, 500)}`;
+    const text = `🔔 **${notifType}**: ${truncate(message, 1800)}`;
 
-    await this.sender.sendAsWebhook("system", session.forumPostId, text);
+    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
 
     // For PING-tier notifications (questions, idle prompts), also send to #alerts
     const tier = classifyNotification("Notification", payload as Record<string, any>);
@@ -498,7 +498,7 @@ export class HookReceiver {
 
     const taskName = payload.task_name ?? payload.task_id ?? "task";
     await this.sender.sendAsWebhook(
-      "system",
+      "claude",
       session.forumPostId,
       `✅ Task completed: **${taskName}**`,
     );
@@ -516,7 +516,7 @@ export class HookReceiver {
 
     const teammateId = payload.teammate_id ?? "teammate";
     await this.sender.sendAsWebhook(
-      "system",
+      "claude",
       session.forumPostId,
       `🤖 Teammate idle: **${teammateId}**`,
     );
@@ -542,7 +542,7 @@ export class HookReceiver {
         session.planCurrentStep = -1;
         session.planLastEditAt = 0;
         await this.sender.sendAsWebhook(
-          "system",
+          "claude",
           session.forumPostId,
           "📋 Plan mode activated",
         );
@@ -554,7 +554,7 @@ export class HookReceiver {
     }
 
     await this.sender.sendAsWebhook(
-      "system",
+      "claude",
       session.forumPostId,
       `⚙️ Config changed: **${key}**`,
     );
@@ -585,7 +585,7 @@ export class HookReceiver {
       });
     if (fields.length > 0) embed.addFields(fields);
 
-    await this.sender.sendEmbed("system", session.forumPostId, embed);
+    await this.sender.sendEmbed("claude", session.forumPostId, embed);
     return { ok: true };
   }
 
@@ -597,7 +597,7 @@ export class HookReceiver {
 
     const name = payload.name ?? "unknown";
     await this.sender.sendAsWebhook(
-      "system",
+      "claude",
       session.forumPostId,
       `🌳 Worktree removed: **${name}**`,
     );

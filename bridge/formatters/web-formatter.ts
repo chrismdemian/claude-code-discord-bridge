@@ -1,9 +1,8 @@
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
-import { MAX_CONTENT_LENGTH } from "../constants";
 import { extractResultText, truncate } from "./utils";
 
 export function formatWebFetchCall(toolUse: ToolUseBlock): FormattedMessage {
-  const url = truncate(String(toolUse.input.url ?? "?"), 200);
+  const url = truncate(String(toolUse.input.url ?? "?"), 800);
   return {
     webhook: "claude",
     content: `🌐 \`Fetch: ${url}\``,
@@ -18,14 +17,15 @@ export function formatWebFetchResult(
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
+  // Let splitMessage in MessageSender handle chunking for long content
   return {
     webhook: "claude",
-    content: truncate(text, MAX_CONTENT_LENGTH),
+    content: text,
   };
 }
 
 export function formatWebSearchCall(toolUse: ToolUseBlock): FormattedMessage {
-  const query = truncate(String(toolUse.input.query ?? "?"), 150);
+  const query = truncate(String(toolUse.input.query ?? "?"), 800);
   return {
     webhook: "claude",
     content: `🔎 \`Search: "${query}"\``,
@@ -40,8 +40,9 @@ export function formatWebSearchResult(
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
+  // Let splitMessage in MessageSender handle chunking for long content
   return {
     webhook: "claude",
-    content: truncate(text, MAX_CONTENT_LENGTH),
+    content: text,
   };
 }

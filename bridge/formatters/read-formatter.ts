@@ -7,8 +7,8 @@ import { inferLanguage } from "./lang-map";
 export function formatReadCall(toolUse: ToolUseBlock): FormattedMessage {
   const filePath = String(toolUse.input.file_path ?? "?");
   return {
-    webhook: "editor",
-    content: `📖 \`Read: ${truncate(filePath, 150)}\``,
+    webhook: "claude",
+    content: `📖 \`Read: ${truncate(filePath, 800)}\``,
   };
 }
 
@@ -23,19 +23,19 @@ export function formatReadResult(
   const filePath = String(toolUse.input.file_path ?? "?");
   const lang = inferLanguage(filePath);
   const numLines = countLines(text);
-  const header = `📖 **${truncate(filePath, 100)}** (${numLines} lines)`;
+  const header = `📖 **${truncate(filePath, 800)}** (${numLines} lines)`;
 
   // Escape triple backticks
   const escaped = text.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\``;
   const fullContent = `${header}\n${codeBlock}`;
 
-  // Fits in one message
+  // Fits in one message — let splitMessage handle if borderline
   if (fullContent.length <= MAX_CONTENT_LENGTH) {
-    return { webhook: "editor", content: fullContent };
+    return { webhook: "claude", content: fullContent };
   }
 
-  // Too long: show first N + last N lines (non-overlapping), attach full
+  // Too long: show first 30 + last 10 lines, attach full file
   const lines = text.split("\n");
   const headCount = Math.min(30, lines.length);
   const tailCount = Math.min(10, Math.max(0, lines.length - headCount));
@@ -53,17 +53,17 @@ export function formatReadResult(
     preview = `${header}\n\`\`\`${lang}\n${escapedHead}\n\`\`\``;
   }
 
-  const trimmedPreview = preview.length > MAX_CONTENT_LENGTH
-    ? `${header}\n\`\`\`${lang}\n${truncate(escapedHead, MAX_CONTENT_LENGTH - header.length - 30)}\n\`\`\`\n*Full content in attached file*`
-    : preview;
+  // Append note about the attached file
+  preview += "\n*Full content in attached file*";
 
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: filePath.split(/[/\\]/).pop() ?? "file.txt",
   });
 
+  // splitMessage will handle splitting the preview if it exceeds Discord limit
   return {
-    webhook: "editor",
-    content: trimmedPreview,
+    webhook: "claude",
+    content: preview,
     files: [attachment],
   };
 }

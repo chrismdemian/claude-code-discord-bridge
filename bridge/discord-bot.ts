@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import {
   Client,
+  Events,
   GatewayIntentBits,
   IntentsBitField,
   Partials,
@@ -17,7 +18,6 @@ import { buildNewPromptButton } from "./interactions/modal-handler";
 import {
   COLORS,
   FORUM_TAGS,
-  WEBHOOK_NAMES,
   CATEGORY_NAME,
   FORUM_CHANNEL_NAME,
   DASHBOARD_CHANNEL_NAME,
@@ -76,7 +76,7 @@ export function login(client: Client, token: string): Promise<void> {
     };
     client.on("shardError", handleIntentError);
 
-    client.once("ready", () => {
+    client.once(Events.ClientReady, () => {
       clearTimeout(timeout);
       client.removeListener("shardError", handleIntentError);
       console.log(`${LOG_PREFIX} Bot logged in as ${client.user?.tag}`);
@@ -229,24 +229,27 @@ export async function setupServer(
       });
     })());
 
-  // --- Webhooks on forum channel ---
+  // --- Single "Claude" webhook on forum channel ---
   const existingWebhooks = await forumChannel.fetchWebhooks();
-  const webhooks: Record<string, WebhookRef> = {};
 
-  for (const name of WEBHOOK_NAMES) {
-    let wh = existingWebhooks.find((w) => w.name === name);
-    if (!wh) {
-      console.log(`${LOG_PREFIX} Creating webhook: ${name}`);
-      wh = await forumChannel.createWebhook({ name });
+  // Clean up legacy per-tool webhooks from previous versions
+  const legacyNames = new Set(["Terminal", "Editor", "Playwright", "Git", "System"]);
+  for (const wh of existingWebhooks.values()) {
+    if (legacyNames.has(wh.name)) {
+      console.log(`${LOG_PREFIX} Removing legacy webhook: ${wh.name}`);
+      await wh.delete().catch(() => {});
     }
-    if (!wh.token) {
-      console.warn(
-        `${LOG_PREFIX} Webhook "${name}" has no token — recreating`,
-      );
-      await wh.delete();
-      wh = await forumChannel.createWebhook({ name });
-    }
-    webhooks[name.toLowerCase()] = { id: wh.id, token: wh.token! };
+  }
+
+  let claudeWebhook = existingWebhooks.find((w) => w.name === "Claude");
+  if (!claudeWebhook) {
+    console.log(`${LOG_PREFIX} Creating webhook: Claude`);
+    claudeWebhook = await forumChannel.createWebhook({ name: "Claude" });
+  }
+  if (!claudeWebhook.token) {
+    console.warn(`${LOG_PREFIX} Webhook "Claude" has no token — recreating`);
+    await claudeWebhook.delete();
+    claudeWebhook = await forumChannel.createWebhook({ name: "Claude" });
   }
 
   const discordConfig: DiscordConfig = {
@@ -256,12 +259,7 @@ export async function setupServer(
     alertsChannelId: alerts.id,
     categoryId: category.id,
     webhooks: {
-      claude: webhooks.claude,
-      terminal: webhooks.terminal,
-      editor: webhooks.editor,
-      playwright: webhooks.playwright,
-      git: webhooks.git,
-      system: webhooks.system,
+      claude: { id: claudeWebhook.id, token: claudeWebhook.token! },
     },
   };
 

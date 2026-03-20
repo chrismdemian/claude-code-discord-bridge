@@ -27,29 +27,12 @@ import {
 } from "./formatters/web-formatter";
 
 // ── Webhook routing ──────────────────────────────────────────────────────
+// All messages go through the single "Claude" webhook. Differentiation
+// happens via emoji prefixes and embed colors in the formatters.
 
 type WebhookName = keyof DiscordConfig["webhooks"];
 
-const TOOL_WEBHOOK_MAP: Record<string, WebhookName> = {
-  Bash: "terminal",
-  Read: "editor",
-  Edit: "editor",
-  Write: "editor",
-  MultiEdit: "editor",
-  Glob: "editor",
-  Grep: "editor",
-  NotebookEdit: "editor",
-  WebSearch: "claude",
-  WebFetch: "claude",
-  Agent: "claude",
-  TodoRead: "claude",
-  TodoWrite: "claude",
-};
-
-export function getToolWebhook(toolName: string): WebhookName {
-  if (TOOL_WEBHOOK_MAP[toolName]) return TOOL_WEBHOOK_MAP[toolName];
-  if (toolName.startsWith("mcp__plugin_playwright")) return "playwright";
-  if (toolName.startsWith("mcp__")) return "system";
+export function getToolWebhook(_toolName: string): WebhookName {
   return "claude";
 }
 
@@ -71,7 +54,7 @@ const CALL_FORMATTERS: Record<string, CallFormatterFn> = {
 };
 
 function defaultCallFormatter(toolUse: ToolUseBlock): FormattedMessage {
-  const inputStr = truncate(JSON.stringify(toolUse.input), 120);
+  const inputStr = truncate(JSON.stringify(toolUse.input), 800);
   return {
     webhook: getToolWebhook(toolUse.name),
     content: `🔧 \`${toolUse.name}(${inputStr})\``,
@@ -115,11 +98,11 @@ function defaultResultFormatter(
   if (!text.trim()) return null;
 
   const prefix = result.is_error ? "Error: " : "";
-  const truncated = truncate(text, 1800);
 
+  // Let splitMessage in MessageSender handle chunking for long content
   return {
     webhook: getToolWebhook(toolUse.name),
-    content: `${prefix}${wrapCodeBlock(truncated)}`,
+    content: `${prefix}${wrapCodeBlock(text)}`,
   };
 }
 

@@ -120,19 +120,9 @@ export function validateConfig(
     errors.push("Invalid alertsChannelId");
   if (!SNOWFLAKE_RE.test(discord.categoryId)) errors.push("Invalid categoryId");
 
-  const expectedWebhooks = [
-    "claude",
-    "terminal",
-    "editor",
-    "playwright",
-    "git",
-    "system",
-  ] as const;
-  for (const name of expectedWebhooks) {
-    const wh = discord.webhooks[name];
-    if (!wh?.id || !wh?.token) {
-      errors.push(`Webhook "${name}" missing id or token`);
-    }
+  const wh = discord.webhooks.claude;
+  if (!wh?.id || !wh?.token) {
+    errors.push(`Webhook "claude" missing id or token`);
   }
 
   return { valid: errors.length === 0, errors };

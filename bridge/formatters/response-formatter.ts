@@ -65,7 +65,7 @@ export function formatSystemEvent(
     }
 
     return {
-      webhook: "system",
+      webhook: "claude",
       content: `-# ${parts[0]}`,
     };
   }

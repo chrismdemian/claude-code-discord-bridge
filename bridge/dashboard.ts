@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { EmbedBuilder, type Client, type TextChannel, type Message } from "discord.js";
+import { EmbedBuilder, type Client, type TextChannel } from "discord.js";
 import type { BridgeSession } from "./types";
 import { COLORS, LOG_PREFIX } from "./constants";
 import { formatDuration } from "./formatters/utils";
@@ -113,12 +113,12 @@ export class Dashboard {
   /** Find an existing bot-pinned message in the dashboard channel */
   private async findPinnedMessage(channel: TextChannel): Promise<string | null> {
     try {
-      const pinned = await channel.messages.fetchPinned();
+      const pinned = await channel.messages.fetchPins();
       const botId = this.client.user?.id;
       if (!botId) return null;
 
-      const botPinned = pinned.find((m: Message) => m.author.id === botId);
-      return botPinned?.id ?? null;
+      const botPinned = pinned.items.find((pin) => pin.message.author.id === botId);
+      return botPinned?.message.id ?? null;
     } catch {
       return null;
     }

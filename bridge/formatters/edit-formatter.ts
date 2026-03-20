@@ -1,7 +1,9 @@
 import { AttachmentBuilder } from "discord.js";
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
-import { MAX_CONTENT_LENGTH } from "../constants";
 import { truncate } from "./utils";
+
+/** Threshold for attaching diff as a file (bytes). Below this, splitMessage handles it. */
+const FILE_ATTACHMENT_THRESHOLD = 8000;
 
 /** Escape triple backticks inside diff content */
 function escapeTicks(text: string): string {
@@ -18,8 +20,8 @@ function buildDiff(oldStr: string, newStr: string): string {
 export function formatEditCall(toolUse: ToolUseBlock): FormattedMessage {
   const filePath = String(toolUse.input.file_path ?? "?");
   return {
-    webhook: "editor",
-    content: `✏️ \`Edit: ${truncate(filePath, 150)}\``,
+    webhook: "claude",
+    content: `✏️ \`Edit: ${truncate(filePath, 800)}\``,
   };
 }
 
@@ -65,27 +67,31 @@ function formatDiffOutput(
 ): FormattedMessage {
   const header =
     editCount > 1
-      ? `✏️ **${truncate(filePath, 100)}** (${editCount} edits)`
-      : `✏️ **${truncate(filePath, 100)}**`;
+      ? `✏️ **${truncate(filePath, 800)}** (${editCount} edits)`
+      : `✏️ **${truncate(filePath, 800)}**`;
 
   const escaped = escapeTicks(diffText);
   const codeBlock = `\`\`\`diff\n${escaped}\n\`\`\``;
   const fullContent = `${header}\n${codeBlock}`;
 
-  // Fits in one message
-  if (fullContent.length <= MAX_CONTENT_LENGTH) {
-    return { webhook: "editor", content: fullContent };
+  // Short/medium diffs: send as content — splitMessage handles chunking
+  if (fullContent.length <= FILE_ATTACHMENT_THRESHOLD) {
+    return { webhook: "claude", content: fullContent };
   }
 
-  // Too long — summary + .diff attachment
-  const summary = `${header}\n*Diff too large to display inline (see attached file)*`;
+  // Very long diff — show first ~40 lines as preview + attach full diff
+  const lines = escaped.split("\n");
+  const previewLines = lines.slice(0, 40).join("\n");
+  const suffix = lines.length > 40 ? `\n... +${lines.length - 40} more lines (see attached file)` : "";
+  const preview = `${header}\n\`\`\`diff\n${previewLines}${suffix}\n\`\`\``;
+
   const attachment = new AttachmentBuilder(Buffer.from(diffText, "utf-8"), {
     name: `${filePath.split(/[/\\]/).pop() ?? "edit"}.diff`,
   });
 
   return {
-    webhook: "editor",
-    content: summary,
+    webhook: "claude",
+    content: preview,
     files: [attachment],
   };
 }

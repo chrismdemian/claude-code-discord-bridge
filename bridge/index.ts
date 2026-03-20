@@ -168,11 +168,27 @@ async function main() {
         await updateSessionEmbed(client, discordConfig, bridgeSession);
       }
 
-      // Start tailing the transcript
+      // Start tailing the transcript.
+      // If the transcript already exists with content (pre-existing session),
+      // seek to end so we only show new messages going forward — not replay history.
       const tailer = new TranscriptTailer(
         bridgeSession.transcriptPath,
         bridgeSession.transcriptOffset,
       );
+      try {
+        const transcriptFile = Bun.file(bridgeSession.transcriptPath);
+        if (await transcriptFile.exists()) {
+          const stat = fs.statSync(bridgeSession.transcriptPath);
+          if (stat.size > 0) {
+            await tailer.seekToEnd();
+            console.log(
+              `${LOG_PREFIX} Pre-existing transcript found, seeking to end (${stat.size} bytes)`,
+            );
+          }
+        }
+      } catch {
+        // File doesn't exist yet — tailer starts at offset 0 (brand new session)
+      }
       tailers.set(sessionInfo.sessionId, tailer);
       wireTranscriptEvents(tailer, bridgeSession, messageSender, client);
       tailer.start();
@@ -854,6 +870,20 @@ async function sendFormatted(
 /** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates */
 const BRIDGE_MCP_TOOLS = new Set(["send_to_discord", "react_in_discord"]);
 
+/** Patterns that indicate internal/system messages not meant for Discord display */
+const INTERNAL_MESSAGE_PATTERNS = [
+  /^Async agent launched/i,
+  /agentId:\s*[a-f0-9-]+/i,
+  /\bdo not mention to user\b/i,
+  /\boutput_file:\s*/i,
+  /\(internal ID\b/i,
+];
+
+/** Check whether a text block is internal metadata that should not be shown in Discord */
+function isInternalMessage(text: string): boolean {
+  return INTERNAL_MESSAGE_PATTERNS.some((p) => p.test(text));
+}
+
 function wireTranscriptEvents(
   tailer: TranscriptTailer,
   session: BridgeSession,
@@ -866,6 +896,9 @@ function wireTranscriptEvents(
 
   tailer.on("entry:assistant", async (entry) => {
     try {
+      // Skip metadata and sidechain entries — these are internal and should not be shown
+      if (entry.isMeta || entry.isSidechain) return;
+
       // Stop typing indicator when assistant responds
       stopTypingIndicator(session.sessionId);
 
@@ -896,7 +929,7 @@ function wireTranscriptEvents(
 
       // String content (rare for assistant)
       if (typeof msg.content === "string") {
-        if (msg.content.trim()) {
+        if (msg.content.trim() && !isInternalMessage(msg.content)) {
           const formatted = formatAssistantText(msg.content, session, {
             model: msg.model,
             usage: msg.usage,
@@ -907,13 +940,15 @@ function wireTranscriptEvents(
         return;
       }
 
-      // Separate text and tool_use blocks
+      // Separate text and tool_use blocks, filtering out internal messages
       const textBlocks: string[] = [];
       const toolBlocks: ToolUseBlock[] = [];
 
       for (const block of msg.content as ContentBlock[]) {
         if (block.type === "text" && "text" in block && block.text.trim()) {
-          textBlocks.push(block.text);
+          if (!isInternalMessage(block.text)) {
+            textBlocks.push(block.text);
+          }
         } else if (block.type === "tool_use" && "id" in block && "name" in block) {
           toolBlocks.push(block as ToolUseBlock);
         }
@@ -1006,6 +1041,9 @@ function wireTranscriptEvents(
 
   tailer.on("entry:user", async (entry) => {
     try {
+      // Skip metadata and sidechain entries — these are internal and should not be shown
+      if (entry.isMeta || entry.isSidechain) return;
+
       // Track plan mode from permissionMode field on transcript entries
       const pm = (entry as Record<string, unknown>).permissionMode;
       if (pm === "plan" && !session.planMode) {
@@ -1016,9 +1054,6 @@ function wireTranscriptEvents(
 
       const msg = entry.message;
       if (!msg) return;
-
-      // Skip meta/internal entries
-      if (entry.isMeta) return;
 
       // String content = user prompt
       if (typeof msg.content === "string") {

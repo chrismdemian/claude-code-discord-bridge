@@ -44,11 +44,6 @@ export interface DiscordConfig {
   categoryId: string;
   webhooks: {
     claude: WebhookRef;
-    terminal: WebhookRef;
-    editor: WebhookRef;
-    playwright: WebhookRef;
-    git: WebhookRef;
-    system: WebhookRef;
   };
 }
 

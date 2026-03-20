@@ -1,12 +1,15 @@
 import { EmbedBuilder, AttachmentBuilder } from "discord.js";
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
-import { COLORS, MAX_CONTENT_LENGTH, MAX_EMBED_DESCRIPTION } from "../constants";
+import { COLORS, MAX_EMBED_DESCRIPTION } from "../constants";
 import { extractResultText, truncate, wrapCodeBlock } from "./utils";
 
+/** Threshold for attaching output as a .log file (bytes). Below this, splitMessage handles it. */
+const FILE_ATTACHMENT_THRESHOLD = 8000;
+
 export function formatBashCall(toolUse: ToolUseBlock): FormattedMessage {
-  const command = truncate(String(toolUse.input.command ?? "..."), 200);
+  const command = truncate(String(toolUse.input.command ?? "..."), 900);
   return {
-    webhook: "terminal",
+    webhook: "claude",
     content: `🖥️ \`$ ${command}\``,
   };
 }
@@ -29,30 +32,31 @@ export function formatBashResult(
     if (toolUse.input.command) {
       embed.addFields({
         name: "Command",
-        value: `\`${truncate(String(toolUse.input.command), 200)}\``,
+        value: `\`${truncate(String(toolUse.input.command), 900)}\``,
         inline: false,
       });
     }
 
-    return { webhook: "terminal", embeds: [embed] };
+    return { webhook: "claude", embeds: [embed] };
   }
 
-  // Short output: inline code block
-  if (text.length <= MAX_CONTENT_LENGTH - 20) {
+  // Short/medium output: send as content — splitMessage handles chunking
+  if (text.length <= FILE_ATTACHMENT_THRESHOLD) {
     return {
-      webhook: "terminal",
+      webhook: "claude",
       content: wrapCodeBlock(text, "ansi"),
     };
   }
 
-  // Long output: truncated preview + .log attachment
-  const preview = text.slice(0, MAX_CONTENT_LENGTH - 60) + "\n... (truncated, see attached log)";
+  // Very long output: preview + .log attachment for the full content
+  const previewLines = text.split("\n").slice(0, 40).join("\n");
+  const preview = `${previewLines}\n... (full output in attached log)`;
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: "output.log",
   });
 
   return {
-    webhook: "terminal",
+    webhook: "claude",
     content: wrapCodeBlock(preview, "ansi"),
     files: [attachment],
   };

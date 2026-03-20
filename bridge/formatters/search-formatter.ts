@@ -1,13 +1,15 @@
 import { AttachmentBuilder } from "discord.js";
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
-import { MAX_CONTENT_LENGTH } from "../constants";
 import { extractResultText, truncate } from "./utils";
+
+/** Threshold for attaching results as a file (bytes). Below this, splitMessage handles it. */
+const FILE_ATTACHMENT_THRESHOLD = 8000;
 
 export function formatGlobCall(toolUse: ToolUseBlock): FormattedMessage {
   const pattern = String(toolUse.input.pattern ?? "?");
   return {
-    webhook: "editor",
-    content: `🔍 \`Glob: ${truncate(pattern, 150)}\``,
+    webhook: "claude",
+    content: `🔍 \`Glob: ${truncate(pattern, 800)}\``,
   };
 }
 
@@ -25,8 +27,8 @@ export function formatGlobResult(
 export function formatGrepCall(toolUse: ToolUseBlock): FormattedMessage {
   const pattern = String(toolUse.input.pattern ?? "?");
   return {
-    webhook: "editor",
-    content: `🔍 \`Grep: "${truncate(pattern, 140)}"\``,
+    webhook: "claude",
+    content: `🔍 \`Grep: "${truncate(pattern, 800)}"\``,
   };
 }
 
@@ -46,18 +48,22 @@ function formatSearchOutput(header: string, text: string): FormattedMessage {
   const codeBlock = `\`\`\`\n${escaped}\n\`\`\``;
   const fullContent = `${header}\n${codeBlock}`;
 
-  if (fullContent.length <= MAX_CONTENT_LENGTH) {
-    return { webhook: "editor", content: fullContent };
+  // Short/medium output: send as content — splitMessage handles chunking
+  if (fullContent.length <= FILE_ATTACHMENT_THRESHOLD) {
+    return { webhook: "claude", content: fullContent };
   }
 
-  // Too long — truncate + attach full
-  const preview = `${header}\n\`\`\`\n${truncate(escaped, MAX_CONTENT_LENGTH - header.length - 30)}\n\`\`\``;
+  // Very long — show first ~40 lines as preview + attach full results
+  const lines = escaped.split("\n");
+  const previewLines = lines.slice(0, 40).join("\n");
+  const suffix = lines.length > 40 ? `\n... +${lines.length - 40} more lines (see attached file)` : "";
+  const preview = `${header}\n\`\`\`\n${previewLines}${suffix}\n\`\`\``;
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: "results.txt",
   });
 
   return {
-    webhook: "editor",
+    webhook: "claude",
     content: preview,
     files: [attachment],
   };

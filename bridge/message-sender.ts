@@ -13,9 +13,9 @@ type WebhookName = keyof DiscordConfig["webhooks"];
 const MAX_MESSAGE_LENGTH = 1980;
 
 /**
- * Sends messages to Discord via webhooks with automatic message splitting.
- * Each of the 6 webhooks (claude, terminal, editor, playwright, git, system)
- * has its own rate limit bucket, giving combined high throughput.
+ * Sends messages to Discord via a single "Claude" webhook with automatic
+ * message splitting. Differentiation between tool types happens through
+ * emoji prefixes and embed colors in the formatters.
  */
 export class MessageSender {
   private clients: Map<string, WebhookClient>;
@@ -45,12 +45,14 @@ export class MessageSender {
 
     if (!content.trim()) return;
     const chunks = splitMessage(content, MAX_MESSAGE_LENGTH);
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
       try {
+        // Only attach embeds/files to the first chunk to avoid duplicates
+        const chunkOptions = i === 0 ? options : undefined;
         await client.send({
-          content: chunk,
+          content: chunks[i],
           threadId,
-          ...options,
+          ...chunkOptions,
         });
       } catch (err) {
         console.error(

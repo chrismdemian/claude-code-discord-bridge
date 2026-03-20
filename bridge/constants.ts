@@ -29,15 +29,8 @@ export const FORUM_TAGS = {
   HAIKU: { name: "💨 Haiku", moderated: false },
 } as const;
 
-// Webhook identity names
-export const WEBHOOK_NAMES = [
-  "Claude",
-  "Terminal",
-  "Editor",
-  "Playwright",
-  "Git",
-  "System",
-] as const;
+// Webhook identity names — single "Claude" webhook; differentiation via emoji/color
+export const WEBHOOK_NAMES = ["Claude"] as const;
 
 // Discord channel names
 export const CATEGORY_NAME = "CLAUDE CODE";
