@@ -10,7 +10,7 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 <!-- TODO: Replace with actual screenshot/GIF -->
 ![Demo](https://via.placeholder.com/800x450.png?text=REPLACE+WITH+DEMO+GIF)
 
-[![GitHub Stars](https://img.shields.io/github/stars/chrismdemian/claude-code-discord-bridge?style=flat&logo=github)](https://github.com/chrismdemian/claude-code-discord-bridge)
+[![GitHub Stars](https://img.shields.io/github/stars/chrismdemian/claude-code-discord-bridge?style=flat&logo=github&cacheSeconds=300)](https://github.com/chrismdemian/claude-code-discord-bridge)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-blueviolet)](https://code.claude.com)
 
@@ -21,7 +21,13 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 ## Install
 
 ```bash
-claude plugin install discord-bridge@marketplace
+# From GitHub (available now)
+git clone https://github.com/chrismdemian/claude-code-discord-bridge.git
+cd claude-code-discord-bridge
+bun install
+
+# Or when available on the marketplace:
+# claude plugin install discord-bridge@marketplace
 ```
 
 Then run the setup wizard:
@@ -30,13 +36,13 @@ Then run the setup wizard:
 /discord-bridge:setup
 ```
 
-Paste your Discord bot token. Everything else is automatic — server created, channels configured, bot branded, hooks wired up. Join from your phone and you're done.
+Paste your Discord bot token. Everything else is automatic: server created, channels configured, bot branded, hooks wired up. Join from your phone and you're done.
 
 ---
 
 ## What You Get
 
-**Full output mirroring** — not just a chat bridge. Every tool call, diff, terminal output, and screenshot appears in Discord, formatted for mobile.
+**Full output mirroring**, not just a chat bridge. Every tool call, diff, terminal output, and screenshot appears in Discord, formatted for mobile.
 
 <!-- TODO: Replace with actual screenshot -->
 ![Session View](https://via.placeholder.com/800x500.png?text=REPLACE+WITH+SESSION+SCREENSHOT)
@@ -61,24 +67,24 @@ Paste your Discord bot token. Everything else is automatic — server created, c
 ## How It Works
 
 ```
-Your PC                                          Your Phone
-┌──────────────────────────┐                    ┌──────────────┐
-│ Claude Code Instance 1   │──transcript──┐     │              │
-│ Claude Code Instance 2   │──transcript──┤     │   Discord    │
-│ Claude Code Instance 3   │──transcript──┤     │              │
-│                          │              │     │  #sessions   │
-│ Bridge Service ◄─────────────────────────┘     │  ├── fix-bug │
-│ (persistent process)     │                    │  ├── api-v2  │
-│ └── Discord bot          │◄──── WiFi ────────►│  └── tests   │
-│ └── Transcript tailer    │                    │              │
-│ └── Hook receiver        │                    │              │
-└──────────────────────────┘                    └──────────────┘
+Your PC                                        Your Phone
+┌────────────────────────────┐                ┌──────────────┐
+│ Claude Code Instance 1     │─transcript─┐   │              │
+│ Claude Code Instance 2     │─transcript─┤   │   Discord    │
+│ Claude Code Instance 3     │─transcript─┤   │              │
+│                            │            │   │  #sessions   │
+│ Bridge Service ◄────────────────────────┘   │  ├── fix-bug │
+│ (persistent process)       │                │  ├── api-v2  │
+│  └── Discord bot           │◄── WiFi ──────►│  └── tests   │
+│  └── Transcript tailer     │                │              │
+│  └── Hook receiver         │                │              │
+└────────────────────────────┘                └──────────────┘
 ```
 
 Two components:
 
-1. **Plugin** — lightweight MCP server inside Claude Code. Handles input (Discord → Claude Code) via the Channels system.
-2. **Bridge Service** — persistent process on your PC. Monitors sessions, tails transcripts, formats output for Discord. Stays alive even when Claude Code exits.
+1. **Plugin**: lightweight MCP server inside Claude Code. Handles input (Discord to Claude Code) via the Channels system.
+2. **Bridge Service**: persistent process on your PC. Monitors sessions, tails transcripts, formats output for Discord. Stays alive even when Claude Code exits.
 
 ---
 
@@ -86,17 +92,19 @@ Two components:
 
 ### 1. Create a Discord Bot
 
-Go to [discord.com/developers](https://discord.com/developers/applications) → New Application → Bot → Copy Token.
+Go to [discord.com/developers](https://discord.com/developers/applications), create a New Application, go to Bot, and copy the token.
 
 Enable these intents under Bot settings:
 - [x] Server Members Intent
 - [x] Message Content Intent
 
-### 2. Install & Configure
+### 2. Install and Configure
 
 ```bash
-# Install the plugin
-claude plugin install discord-bridge@marketplace
+# Clone and install
+git clone https://github.com/chrismdemian/claude-code-discord-bridge.git
+cd claude-code-discord-bridge
+bun install
 
 # Run the setup wizard
 /discord-bridge:setup
@@ -128,7 +136,7 @@ Each Claude Code session becomes a forum post with status tags:
 
 ### Tool Calls in Threads
 
-Main post stays clean — just your prompts and Claude's responses. Tool call details live in expandable threads:
+Main post stays clean, just your prompts and Claude's responses. Tool call details live in expandable threads:
 
 <!-- TODO: Replace with actual screenshot -->
 ![Thread View](https://via.placeholder.com/800x500.png?text=REPLACE+WITH+THREAD+SCREENSHOT)
@@ -151,7 +159,7 @@ See all sessions at a glance:
 
 ## Commands
 
-All Claude Code slash commands work from Discord — just type them:
+All Claude Code slash commands work from Discord, just type them:
 
 ```
 /plan          Enter plan mode
@@ -182,13 +190,11 @@ Discord-specific commands:
 
 ## Architecture
 
-Built on Anthropic's **Channels** system — the MCP capability that allows external services to push messages into Claude Code sessions.
+Built on Anthropic's **Channels** system, the MCP capability that allows external services to push messages into Claude Code sessions.
 
 **Output mirroring** uses transcript tailing (not hooks alone), giving ~99% coverage of everything Claude does. The transcript JSONL file is written synchronously by Claude Code, making it a reliable real-time data source.
 
 **Input routing** uses the Channel plugin's `notifications/claude/channel` capability to inject Discord messages into the Claude Code session.
-
-See [PRODUCT.md](PRODUCT.md) for the full technical specification.
 
 ---
 
@@ -211,7 +217,7 @@ claude --plugin-dir ./
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).
 
 ---
 
