@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, saveDiscordConfig } from "./config";
 import {
@@ -18,7 +19,6 @@ import {
 } from "./interactions/permission-handler";
 import {
   handleStopInteraction,
-  buildWorkingMessage,
   buildInterruptedMessage,
 } from "./interactions/stop-handler";
 import { handleFileAttachment } from "./interactions/file-handler";
@@ -144,7 +144,6 @@ async function main() {
         lastActivity: Date.now(),
         transcriptPath: sessionInfo.transcriptPath,
         transcriptOffset: 0,
-        workingMessageId: null,
         planMode: false,
         planSteps: [],
         planMessageId: null,
@@ -197,11 +196,6 @@ async function main() {
         bridgeSession.transcriptOffset = tailer.getOffset();
         tailer.stop();
         tailers.delete(sessionInfo.sessionId);
-      }
-
-      // Clean up working message
-      if (bridgeSession.workingMessageId) {
-        await clearWorkingMessage(client, bridgeSession);
       }
 
       // Deny any pending permission request so the hook script unblocks
@@ -289,6 +283,93 @@ async function main() {
         } catch (err) {
           console.error(`${LOG_PREFIX} Hook error:`, err);
           return Response.json({ ok: true }); // Don't block Claude Code on bridge errors
+        }
+      }
+
+      // ── MCP tool endpoints ──
+
+      // Send files/images to Discord from the MCP plugin
+      if (url.pathname === "/api/send-file" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const { sessionId, files, caption } = body as {
+            sessionId: string;
+            files: string[];
+            caption?: string;
+          };
+          if (!sessionId || !Array.isArray(files) || files.length === 0) {
+            return new Response("Missing sessionId or files", { status: 400 });
+          }
+          const session = sessions.get(sessionId);
+          if (!session) {
+            return new Response("Session not found", { status: 404 });
+          }
+
+          const { AttachmentBuilder } = await import("discord.js");
+          const attachments = [];
+          for (const filePath of files.slice(0, 10)) {
+            try {
+              const file = Bun.file(filePath);
+              if (!(await file.exists())) continue;
+              const stat = fs.statSync(filePath);
+              if (stat.size > 25 * 1024 * 1024) continue; // 25 MB limit
+              const buffer = Buffer.from(await file.arrayBuffer());
+              attachments.push(
+                new AttachmentBuilder(buffer, { name: path.basename(filePath) }),
+              );
+            } catch {
+              // Skip unreadable files
+            }
+          }
+
+          if (attachments.length === 0) {
+            return new Response("No valid files to send", { status: 400 });
+          }
+
+          const webhookClient = messageSender.getClient("claude");
+          if (!webhookClient) {
+            return new Response("Webhook client not available", { status: 503 });
+          }
+
+          const sent = await webhookClient.send({
+            content: caption || undefined,
+            files: attachments,
+            threadId: session.forumPostId,
+          });
+
+          return Response.json({ ok: true, messageIds: [sent.id], filesSent: attachments.length });
+        } catch (err) {
+          console.error(`${LOG_PREFIX} send-file error:`, err);
+          return new Response("Internal error", { status: 500 });
+        }
+      }
+
+      // React to the latest message in a session's forum post
+      if (url.pathname === "/api/react" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const { sessionId, emoji } = body as { sessionId: string; emoji: string };
+          if (!sessionId || !emoji) {
+            return new Response("Missing sessionId or emoji", { status: 400 });
+          }
+          const session = sessions.get(sessionId);
+          if (!session) {
+            return new Response("Session not found", { status: 404 });
+          }
+
+          const channel = await client.channels.fetch(session.forumPostId);
+          if (channel?.isThread()) {
+            const messages = await (channel as ThreadChannel).messages.fetch({ limit: 1 });
+            const lastMsg = messages.first();
+            if (lastMsg) {
+              await lastMsg.react(emoji);
+            }
+          }
+
+          return Response.json({ ok: true });
+        } catch (err) {
+          console.error(`${LOG_PREFIX} react error:`, err);
+          return new Response("Internal error", { status: 500 });
         }
       }
 
@@ -511,7 +592,6 @@ async function main() {
           }
           await handleStopInteraction(session, relay);
           await interaction.update(buildInterruptedMessage());
-          session.workingMessageId = null;
           return;
         }
 
@@ -696,24 +776,6 @@ async function updateSessionEmbed(
   }
 }
 
-/** Delete or clear the working message for a session */
-async function clearWorkingMessage(
-  client: Client,
-  session: BridgeSession,
-): Promise<void> {
-  if (!session.workingMessageId) return;
-  try {
-    const channel = await client.channels.fetch(session.forumPostId);
-    if (channel?.isThread()) {
-      const msg = await (channel as ThreadChannel).messages.fetch(session.workingMessageId);
-      await msg.delete().catch(() => {});
-    }
-  } catch {
-    // Best-effort — message may already be gone
-  }
-  session.workingMessageId = null;
-}
-
 // ── Typing indicator ──────────────────────────────────────────────────
 
 /** Start sending typing indicators on a 9-second interval */
@@ -787,6 +849,9 @@ async function sendFormatted(
   }
 }
 
+/** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates */
+const BRIDGE_MCP_TOOLS = new Set(["send_to_discord", "react_in_discord"]);
+
 function wireTranscriptEvents(
   tailer: TranscriptTailer,
   session: BridgeSession,
@@ -808,11 +873,6 @@ function wireTranscriptEvents(
         session.planMode = true;
       } else if (pm && pm !== "plan" && session.planMode) {
         session.planMode = false;
-      }
-
-      // Clear working message when assistant responds
-      if (session.workingMessageId) {
-        await clearWorkingMessage(client, session);
       }
 
       const msg = entry.message;
@@ -930,6 +990,8 @@ function wireTranscriptEvents(
       // Send tool call headers + track for result correlation
       for (const block of toolBlocks) {
         toolUseBlocks.set(block.id, block);
+        // Skip bridge MCP tools — they already sent to Discord directly
+        if (BRIDGE_MCP_TOOLS.has(block.name)) continue;
         const formatted = formatToolCall(block);
         await sendFormatted(sender, threadId, formatted);
       }
@@ -973,18 +1035,6 @@ function wireTranscriptEvents(
         session.turnCount++;
         session.lastActivity = Date.now();
 
-        // Send working indicator with stop button
-        try {
-          const channel = await client.channels.fetch(threadId);
-          if (channel?.isThread()) {
-            const workingMsg = buildWorkingMessage(session.sessionId);
-            const sent = await (channel as ThreadChannel).send(workingMsg);
-            session.workingMessageId = sent.id;
-          }
-        } catch {
-          // Best-effort
-        }
-
         // Start typing indicator while Claude is working
         startTypingIndicator(client, session);
 
@@ -1005,6 +1055,12 @@ function wireTranscriptEvents(
               ? toolUseBlocks.get(resultBlock.tool_use_id)
               : undefined;
             const toolName = toolUse?.name ?? "unknown";
+
+            // Skip bridge MCP tools — they already sent to Discord directly
+            if (BRIDGE_MCP_TOOLS.has(toolName)) {
+              if (resultBlock.tool_use_id) toolUseBlocks.delete(resultBlock.tool_use_id);
+              continue;
+            }
 
             const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
@@ -1030,11 +1086,6 @@ function wireTranscriptEvents(
 
   tailer.on("entry:system", async (entry) => {
     try {
-      // Clear working message on turn_duration (end of turn)
-      if (entry.subtype === "turn_duration" && session.workingMessageId) {
-        await clearWorkingMessage(client, session);
-      }
-
       // Advance plan execution progress on turn boundaries
       if (entry.subtype === "turn_duration" && session.planCurrentStep >= 0 && session.planSteps.length > 0) {
         await advancePlanStep(session, client);

@@ -7,35 +7,6 @@ import type { BridgeSession } from "../types";
 import type { McpRelay } from "../mcp-relay";
 import { LOG_PREFIX } from "../constants";
 
-/** Build a working-state action row with Stop + New Prompt buttons */
-export function buildWorkingActionRow(
-  sessionId: string,
-): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`stop_${sessionId}`)
-      .setLabel("Stop")
-      .setEmoji("🛑")
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId(`prompt_new_${sessionId}`)
-      .setLabel("New Prompt")
-      .setEmoji("📝")
-      .setStyle(ButtonStyle.Primary),
-  );
-}
-
-/** Build a "working" indicator message with Stop + New Prompt buttons */
-export function buildWorkingMessage(sessionId: string): {
-  content: string;
-  components: ActionRowBuilder<ButtonBuilder>[];
-} {
-  return {
-    content: "⏳ Claude is working...",
-    components: [buildWorkingActionRow(sessionId)],
-  };
-}
-
 /** Build an interrupted message (user clicked stop) */
 export function buildInterruptedMessage(): {
   content: string;

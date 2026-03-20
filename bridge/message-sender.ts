@@ -127,6 +127,11 @@ export class MessageSender {
     }
   }
 
+  /** Get a raw webhook client by name (for direct send operations) */
+  getClient(webhookName: string): WebhookClient | undefined {
+    return this.clients.get(webhookName);
+  }
+
   /** Clean up all webhook clients */
   destroy(): void {
     for (const client of this.clients.values()) {

@@ -26,7 +26,6 @@ export interface BridgeSession {
   lastActivity: number;
   transcriptPath: string;
   transcriptOffset: number;
-  workingMessageId: string | null;
   // Plan mode state
   planMode: boolean;
   planSteps: PlanStep[];

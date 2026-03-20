@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
@@ -229,6 +230,73 @@ async function pollForMessages(sessionId: string): Promise<void> {
     }
   }
 }
+
+// ── MCP Tools ────────────────────────────────────────────────────────
+
+server.tool(
+  "send_to_discord",
+  "Send files or images to the current Discord session. Use this to forward screenshots, generated images, or other files the user should see.",
+  {
+    files: z.array(z.string()).describe("Absolute file paths to attach (max 10 files, 25 MB each)"),
+    caption: z.string().optional().describe("Optional short caption"),
+  },
+  async ({ files, caption }) => {
+    if (!currentSessionId) {
+      return { content: [{ type: "text", text: "Not connected to bridge" }], isError: true };
+    }
+
+    try {
+      const res = await fetch(`${BRIDGE_URL}/api/send-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: currentSessionId, files, caption }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        return { content: [{ type: "text", text: `Failed: ${err}` }], isError: true };
+      }
+
+      const result = await res.json() as { messageIds?: string[]; filesSent?: number };
+      const count = result.filesSent ?? result.messageIds?.length ?? 0;
+      return { content: [{ type: "text", text: `Sent ${count} of ${files.length} file(s) to Discord` }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "react_in_discord",
+  "React to the latest message in the current Discord session with an emoji.",
+  {
+    emoji: z.string().describe("Unicode emoji (e.g. '✅', '👍', '🎉')"),
+  },
+  async ({ emoji }) => {
+    if (!currentSessionId) {
+      return { content: [{ type: "text", text: "Not connected to bridge" }], isError: true };
+    }
+
+    try {
+      const res = await fetch(`${BRIDGE_URL}/api/react`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: currentSessionId, emoji }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        return { content: [{ type: "text", text: `Failed: ${err}` }], isError: true };
+      }
+
+      return { content: [{ type: "text", text: `Reacted with ${emoji}` }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+    }
+  },
+);
 
 // ── Main ──────────────────────────────────────────────────────────────
 
