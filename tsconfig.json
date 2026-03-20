@@ -15,6 +15,6 @@
     "rootDir": ".",
     "types": ["bun-types"]
   },
-  "include": ["*.ts", "bridge/**/*.ts"],
+  "include": ["*.ts", "bridge/**/*.ts", "hooks/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

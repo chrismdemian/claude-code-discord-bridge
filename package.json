@@ -8,10 +8,19 @@
   "scripts": {
     "start": "bun install --no-summary && bun server.ts",
     "bridge": "bun run bridge/index.ts",
-    "dev": "bun --watch bridge/index.ts"
+    "dev": "bun --watch bridge/index.ts",
+    "build": "bun build bridge/index.ts --outdir dist --target bun",
+    "server": "bun run server.ts",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "discord.js": "^14.14.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "discord.js": "^14.16.0",
+    "chokidar": "^4.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
   }
 }
