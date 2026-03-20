@@ -66,6 +66,8 @@ import { calculateCost } from "./formatters/cost";
 
 const sessions = new Map<string, BridgeSession>();
 const tailers = new Map<string, TranscriptTailer>();
+const typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+const typingGeneration = new Map<string, number>();
 const relay = new McpRelay();
 
 async function main() {
@@ -186,6 +188,9 @@ async function main() {
     if (!bridgeSession) return;
 
     try {
+      // Stop typing indicator
+      stopTypingIndicator(sessionInfo.sessionId);
+
       // Stop the tailer
       const tailer = tailers.get(sessionInfo.sessionId);
       if (tailer) {
@@ -330,6 +335,7 @@ async function main() {
       if (relay.hasPlugin(session.sessionId)) {
         relay.enqueueMessage(session.sessionId, message.content, message.author.id);
         await message.react("✅").catch(() => {});
+        startTypingIndicator(client, session);
       } else if (message.attachments.size === 0) {
         // Only show read-only notice if there were no attachments (file handler already responds)
         await message
@@ -422,6 +428,30 @@ async function main() {
           if (originalEmbed) {
             await interaction.update({
               embeds: [buildResolvedEmbed(originalEmbed, true)],
+              components: [],
+            });
+          } else {
+            await interaction.update({ components: [] });
+          }
+          return;
+        }
+
+        // Permission: Allow for Session
+        if (customId.startsWith("perm_session_")) {
+          const sessionId = customId.slice("perm_session_".length);
+          const pending = hookReceiver.getPendingPermission(sessionId);
+          if (!pending) {
+            await interaction.reply({
+              content: "This permission request has already been resolved or expired.",
+              ephemeral: true,
+            });
+            return;
+          }
+          hookReceiver.resolvePermission(sessionId, true, true);
+          const originalEmbed = interaction.message.embeds[0];
+          if (originalEmbed) {
+            await interaction.update({
+              embeds: [buildResolvedEmbed(originalEmbed, true, true)],
               components: [],
             });
           } else {
@@ -596,6 +626,10 @@ async function main() {
     httpServer.stop();
     dashboard.destroy();
     awayTracker.destroy();
+    for (const interval of typingIntervals.values()) {
+      clearInterval(interval);
+    }
+    typingIntervals.clear();
     for (const tailer of tailers.values()) {
       tailer.stop();
     }
@@ -680,6 +714,45 @@ async function clearWorkingMessage(
   session.workingMessageId = null;
 }
 
+// ── Typing indicator ──────────────────────────────────────────────────
+
+/** Start sending typing indicators on a 9-second interval */
+async function startTypingIndicator(
+  client: Client,
+  session: BridgeSession,
+): Promise<void> {
+  stopTypingIndicator(session.sessionId);
+  // Track generation to prevent stale intervals from being created
+  // if stopTypingIndicator is called while we're awaiting channels.fetch
+  const gen = (typingGeneration.get(session.sessionId) ?? 0) + 1;
+  typingGeneration.set(session.sessionId, gen);
+  try {
+    const channel = await client.channels.fetch(session.forumPostId);
+    if (typingGeneration.get(session.sessionId) !== gen) return;
+    if (!channel?.isThread()) return;
+    const thread = channel as ThreadChannel;
+    await thread.sendTyping().catch(() => {});
+    if (typingGeneration.get(session.sessionId) !== gen) return;
+    const interval = setInterval(async () => {
+      await thread.sendTyping().catch(() => {});
+    }, 9000);
+    typingIntervals.set(session.sessionId, interval);
+  } catch {
+    // Best-effort
+  }
+}
+
+/** Stop the typing indicator interval for a session */
+function stopTypingIndicator(sessionId: string): void {
+  // Bump generation so any in-flight startTypingIndicator will bail out
+  typingGeneration.set(sessionId, (typingGeneration.get(sessionId) ?? 0) + 1);
+  const interval = typingIntervals.get(sessionId);
+  if (interval) {
+    clearInterval(interval);
+    typingIntervals.delete(sessionId);
+  }
+}
+
 // ── Transcript → Discord routing ──────────────────────────────────────
 
 /** Send a FormattedMessage through the appropriate MessageSender method */
@@ -726,6 +799,9 @@ function wireTranscriptEvents(
 
   tailer.on("entry:assistant", async (entry) => {
     try {
+      // Stop typing indicator when assistant responds
+      stopTypingIndicator(session.sessionId);
+
       // Track plan mode from permissionMode field on transcript entries
       const pm = (entry as Record<string, unknown>).permissionMode;
       if (pm === "plan" && !session.planMode) {
@@ -909,6 +985,9 @@ function wireTranscriptEvents(
           // Best-effort
         }
 
+        // Start typing indicator while Claude is working
+        startTypingIndicator(client, session);
+
         return;
       }
 
@@ -967,6 +1046,21 @@ function wireTranscriptEvents(
       }
     } catch (err) {
       console.error(`${LOG_PREFIX} Error processing system entry:`, err);
+    }
+  });
+
+  tailer.on("entry:custom-title", async (entry) => {
+    try {
+      const customTitle = entry.customTitle;
+      if (!customTitle) return;
+      const projectName = path.basename(session.cwd);
+      const newName = `${projectName} — ${customTitle}`.slice(0, 100);
+      const thread = await client.channels.fetch(threadId);
+      if (thread?.isThread()) {
+        await (thread as ThreadChannel).setName(newName);
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Failed to rename forum post:`, err);
     }
   });
 

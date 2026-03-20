@@ -25,9 +25,15 @@ async function main() {
         description: payload.description,
       },
       9 * 60 * 1000, // 9 min (hook has 10 min total)
-    )) as { approved: boolean };
+    )) as { approved: boolean; allowForSession?: boolean };
 
-    process.exit(result.approved ? 0 : 1);
+    if (result.approved && result.allowForSession) {
+      // Signal session-level approval to Claude Code via stdout JSON
+      process.stdout.write(JSON.stringify({ decision: "allowForSession" }) + "\n");
+    }
+
+    // Use exitCode instead of process.exit() to allow stdout to flush
+    process.exitCode = result.approved ? 0 : 1;
   } catch (err) {
     console.error("[discord-bridge] Permission request failed:", err);
     process.exit(1);

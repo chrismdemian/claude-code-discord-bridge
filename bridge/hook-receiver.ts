@@ -59,8 +59,13 @@ const ALERT_FAILURE_TYPES = new Set([
 ]);
 
 /** State for a pending permission request awaiting Discord button click */
+export interface PermissionResult {
+  approved: boolean;
+  allowForSession?: boolean;
+}
+
 export interface PendingPermission {
-  resolve: (approved: boolean) => void;
+  resolve: (result: PermissionResult) => void;
   messageId: string;
   forumPostId: string;
   toolInput: Record<string, unknown>;
@@ -158,11 +163,11 @@ export class HookReceiver {
    * Resolve a pending permission request. Called by the Discord button
    * interaction handler when the user clicks Approve or Deny.
    */
-  resolvePermission(sessionId: string, approved: boolean): void {
+  resolvePermission(sessionId: string, approved: boolean, allowForSession = false): void {
     const pending = this.pendingPermissions.get(sessionId);
     if (pending) {
       clearTimeout(pending.timeout);
-      pending.resolve(approved);
+      pending.resolve({ approved, allowForSession });
       this.pendingPermissions.delete(sessionId);
     }
   }
@@ -189,7 +194,7 @@ export class HookReceiver {
     // conditions where a button click arrives during the await below.
     this.pendingPermissions.delete(sessionId);
     clearTimeout(pending.timeout);
-    pending.resolve(false);
+    pending.resolve({ approved: false });
 
     // Update the Discord embed to show timeout
     try {
@@ -257,7 +262,7 @@ export class HookReceiver {
 
   private async handlePermissionRequest(
     payload: PermissionRequestHook,
-  ): Promise<{ approved: boolean }> {
+  ): Promise<{ approved: boolean; allowForSession?: boolean }> {
     const session = this.sessions.get(payload.session_id);
     if (!session) return { approved: false };
 
@@ -266,7 +271,7 @@ export class HookReceiver {
       payload.description ??
       formatPermissionDescription(payload.tool_name, payload.tool_input);
 
-    // Build embed with Approve/Deny/Context buttons
+    // Build embed with Approve/Allow for Session/Deny/Context buttons
     const { embeds, components } = buildPermissionEmbed(payload, description);
 
     // Send via bot client (not webhook) so InteractionCreate routes to us
@@ -283,8 +288,8 @@ export class HookReceiver {
 
     trackForAwaySummary("PermissionRequest", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
-    // Wait for the user to click Approve/Deny, or timeout after 9 minutes
-    const approved = await new Promise<boolean>((resolve) => {
+    // Wait for the user to click Approve/Allow for Session/Deny, or timeout after 9 minutes
+    const result = await new Promise<PermissionResult>((resolve) => {
       const timeout = setTimeout(() => {
         if (this.pendingPermissions.has(payload.session_id)) {
           console.log(`${LOG_PREFIX} Permission timed out for session ${payload.session_id.slice(0, 8)}`);
@@ -302,7 +307,7 @@ export class HookReceiver {
       });
     });
 
-    return { approved };
+    return result;
   }
 
   private async handleStop(payload: StopHook): Promise<{ ok: true }> {

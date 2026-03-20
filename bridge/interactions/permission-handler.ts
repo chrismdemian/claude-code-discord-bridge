@@ -43,6 +43,11 @@ export function buildPermissionEmbed(
       .setEmoji("✅")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
+      .setCustomId(`perm_session_${payload.session_id}`)
+      .setLabel("Allow for Session")
+      .setEmoji("🔓")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
       .setCustomId(`perm_deny_${payload.session_id}`)
       .setLabel("Deny")
       .setEmoji("❌")
@@ -64,9 +69,12 @@ export function buildPermissionEmbed(
 export function buildResolvedEmbed(
   originalEmbed: Embed,
   approved: boolean,
+  allowForSession = false,
 ): EmbedBuilder {
   const embed = EmbedBuilder.from(originalEmbed.data);
-  if (approved) {
+  if (approved && allowForSession) {
+    embed.setColor(COLORS.GREEN).setTitle("🔓 Allowed for Session");
+  } else if (approved) {
     embed.setColor(COLORS.GREEN).setTitle("✅ Permission Approved");
   } else {
     embed.setColor(COLORS.RED).setTitle("❌ Permission Denied");

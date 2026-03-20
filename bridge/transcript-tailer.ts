@@ -8,6 +8,7 @@ interface TranscriptTailerEvents {
   "entry:user": [entry: RawTranscriptEntry];
   "entry:system": [entry: RawTranscriptEntry];
   "entry:progress": [entry: RawTranscriptEntry];
+  "entry:custom-title": [entry: RawTranscriptEntry];
   error: [error: Error];
 }
 
@@ -17,7 +18,6 @@ const POLL_INTERVAL_MS = 500;
 const IGNORED_TYPES = new Set([
   "file-history-snapshot",
   "agent-name",
-  "custom-title",
   "queue-operation",
 ]);
 
@@ -159,6 +159,9 @@ export class TranscriptTailer extends EventEmitter<TranscriptTailerEvents> {
         break;
       case "progress":
         this.emit("entry:progress", entry);
+        break;
+      case "custom-title":
+        this.emit("entry:custom-title", entry);
         break;
       // Unknown types: silently skip
     }
