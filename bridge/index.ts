@@ -4,6 +4,7 @@ import { loadConfig, saveDiscordConfig } from "./config";
 import {
   createClient,
   login,
+  validateIntents,
   setupServer,
   createForumPost,
   archiveForumPost,
@@ -80,6 +81,7 @@ async function main() {
   // 2. Create and login Discord client
   const client = createClient();
   await login(client, config.token);
+  validateIntents(client);
 
   // 3. Setup server structure (idempotent — finds existing before creating)
   let discordConfig: DiscordConfig;

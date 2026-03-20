@@ -9,10 +9,20 @@ Walk the user through setting up the Discord bridge.
 
 ## Steps
 
-1. Ask the user to create a Discord bot at https://discord.com/developers/applications
-   - Create a New Application
-   - Go to Bot tab, click Reset Token, copy the token
-   - Enable these Privileged Gateway Intents: **MESSAGE CONTENT**
+1. **Open the Discord Developer Portal** in the user's browser automatically. Detect the platform and run the appropriate command:
+   - macOS: `open https://discord.com/developers/applications`
+   - Windows: `start https://discord.com/developers/applications`
+   - Linux: `xdg-open https://discord.com/developers/applications`
+
+   Then print this concise guide:
+   ```
+   1. Create New Application → name it "Claude"
+   2. Go to Bot → Reset Token → copy it
+   3. Under Bot → enable Server Members Intent + Message Content Intent
+   4. Paste your token below:
+   ```
+
+   Additional setup the user will need (guide them through after the token):
    - Go to OAuth2 > URL Generator > Select scopes: **bot**, **applications.commands**
    - Select bot permissions: Send Messages, Manage Webhooks, Create Public Threads,
      Send Messages in Threads, Manage Threads, Embed Links, Attach Files,

@@ -2,6 +2,7 @@ import * as path from "node:path";
 import {
   Client,
   GatewayIntentBits,
+  IntentsBitField,
   Partials,
   ChannelType,
   EmbedBuilder,
@@ -38,22 +39,81 @@ export function createClient(): Client {
   });
 }
 
+/** Check if an error is a disallowed intents error (gateway close code 4014) */
+function isDisallowedIntentsError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  return (
+    e.code === "DisallowedIntents" ||
+    e.code === 4014 ||
+    String(e.message ?? "").toLowerCase().includes("disallowed intent")
+  );
+}
+
+/** Log a clear intent error message and exit */
+function exitWithIntentError(): never {
+  console.error(
+    `${LOG_PREFIX} ERROR: Message Content intent is not enabled. ` +
+      `Go to https://discord.com/developers/applications → Your App → Bot → ` +
+      `Enable 'Message Content Intent'. The bridge cannot receive messages without this.`,
+  );
+  process.exit(1);
+}
+
 /** Login and wait for the client to be ready */
 export function login(client: Client, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error("Discord client did not become ready within 30s"));
     }, 30_000);
+
+    // Detect disallowed intents during gateway handshake (close code 4014)
+    const handleIntentError = (err: Error) => {
+      if (isDisallowedIntentsError(err)) {
+        clearTimeout(timeout);
+        exitWithIntentError();
+      }
+    };
+    client.on("shardError", handleIntentError);
+
     client.once("ready", () => {
       clearTimeout(timeout);
+      client.removeListener("shardError", handleIntentError);
       console.log(`${LOG_PREFIX} Bot logged in as ${client.user?.tag}`);
       resolve();
     });
     client.login(token).catch((err) => {
       clearTimeout(timeout);
+      client.removeListener("shardError", handleIntentError);
+      if (isDisallowedIntentsError(err)) {
+        exitWithIntentError();
+      }
       reject(err);
     });
   });
+}
+
+/** Validate that required privileged intents are enabled after login */
+export function validateIntents(client: Client): void {
+  const intents = new IntentsBitField(client.options.intents);
+  const required: { bit: GatewayIntentBits; name: string; privileged: boolean }[] = [
+    { bit: GatewayIntentBits.Guilds, name: "Guilds", privileged: false },
+    { bit: GatewayIntentBits.GuildMessages, name: "Guild Messages", privileged: false },
+    { bit: GatewayIntentBits.MessageContent, name: "Message Content", privileged: true },
+  ];
+
+  for (const { bit, name, privileged } of required) {
+    if (!intents.has(bit)) {
+      const hint = privileged
+        ? ` Go to https://discord.com/developers/applications → Your App → Bot → Enable '${name} Intent'.`
+        : "";
+      console.error(
+        `${LOG_PREFIX} ERROR: Required intent '${name}' is missing.${hint} The bridge cannot function without it.`,
+      );
+      process.exit(1);
+    }
+  }
+  console.log(`${LOG_PREFIX} All required intents verified`);
 }
 
 /** Set up guild structure (idempotent: finds existing before creating) */
