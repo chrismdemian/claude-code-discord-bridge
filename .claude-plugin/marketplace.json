@@ -1,13 +1,16 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "claude-code-discord-bridge",
-  "description": "Claude Code Discord Bridge marketplace",
-  "plugins": {
-    "discord-bridge": {
+  "description": "Full-featured Discord bridge for Claude Code. Monitor and control all your sessions from your phone.",
+  "owner": {
+    "name": "chrismdemian"
+  },
+  "plugins": [
+    {
       "name": "discord-bridge",
-      "description": "Control Claude Code from your phone via Discord. Full session mirroring, bidirectional messaging, permission approval.",
-      "source": ".",
-      "categories": ["productivity", "development"],
-      "homepage": "https://github.com/chrismdemian/claude-code-discord-bridge"
+      "description": "Control Claude Code from your phone via Discord. Full session mirroring, bidirectional messaging, permission approval. Auto-discovers all running instances.",
+      "category": "productivity",
+      "source": "."
     }
-  }
+  ]
 }
