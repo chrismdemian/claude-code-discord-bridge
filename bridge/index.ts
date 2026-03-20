@@ -53,6 +53,8 @@ import type {
   ToolUseBlock,
   ToolResultBlock,
 } from "./types";
+import { Dashboard } from "./dashboard";
+import { AwayTracker } from "./away-tracker";
 import { LOG_PREFIX, COLORS, PLAN_EDIT_THROTTLE_MS } from "./constants";
 import { formatToolCall, formatToolResult } from "./formatter";
 import {
@@ -93,8 +95,20 @@ async function main() {
   // 5. Create message sender with webhook clients
   const messageSender = new MessageSender(discordConfig.webhooks);
 
+  // 5b. Resolve guild owner for access control + notifications
+  const guild = await client.guilds.fetch(discordConfig.guildId);
+  const guildOwnerId = guild.ownerId;
+
+  // 5c. Create away tracker
+  const awayTracker = new AwayTracker(client, guildOwnerId);
+  awayTracker.start();
+
+  // 5d. Create dashboard
+  const dashboard = new Dashboard(sessions, client, discordConfig.dashboardChannelId);
+  await dashboard.initialize();
+
   // 6. Create hook receiver
-  const hookReceiver = new HookReceiver(sessions, messageSender, client, discordConfig);
+  const hookReceiver = new HookReceiver(sessions, messageSender, client, discordConfig, awayTracker, guildOwnerId);
 
   // 7. Register slash commands
   await registerCommands(config.token, client.user!.id, config.guildId);
@@ -144,6 +158,7 @@ async function main() {
 
       sessions.set(sessionInfo.sessionId, bridgeSession);
       setBotPresence(client, sessions.size);
+      dashboard.refresh();
 
       // Update embed if plugin already connected
       if (bridgeSession.hasChannelPlugin) {
@@ -192,6 +207,7 @@ async function main() {
       await archiveForumPost(client, discordConfig, bridgeSession.threadId);
       sessions.delete(sessionInfo.sessionId);
       setBotPresence(client, sessions.size);
+      dashboard.refresh();
     } catch (err) {
       console.error(
         `${LOG_PREFIX} Failed to handle session end ${sessionInfo.sessionId}:`,
@@ -287,14 +303,14 @@ async function main() {
 
   console.log(`${LOG_PREFIX} HTTP server listening on port ${config.bridgePort}`);
 
-  // 10. Resolve guild owner for access control (needed by message + interaction handlers)
-  const guild = await client.guilds.fetch(discordConfig.guildId);
-  const guildOwnerId = guild.ownerId;
-
-  // 11. Listen for Discord messages in forum posts → route to Claude Code
+  // 10. Listen for Discord messages in forum posts → route to Claude Code
+  //     (guildOwnerId resolved earlier in step 5b)
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
     if (!message.channel.isThread()) return;
+
+    // Track user activity for away detection
+    awayTracker.markActive(message.author.id);
 
     // Access control: only guild owner can send messages/files
     if (message.author.id !== guildOwnerId) return;
@@ -325,6 +341,9 @@ async function main() {
 
   // 12. Listen for all Discord interactions (buttons, modals, slash commands)
   client.on(Events.InteractionCreate, async (interaction) => {
+    // Track user activity for away detection
+    awayTracker.markActive(interaction.user.id);
+
     try {
       // ── Slash Commands ──
       if (interaction.isChatInputCommand()) {
@@ -575,6 +594,8 @@ async function main() {
   const shutdown = async () => {
     console.log(`${LOG_PREFIX} Shutting down...`);
     httpServer.stop();
+    dashboard.destroy();
+    awayTracker.destroy();
     for (const tailer of tailers.values()) {
       tailer.stop();
     }

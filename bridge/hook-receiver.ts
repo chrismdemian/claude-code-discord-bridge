@@ -25,7 +25,8 @@ import {
   buildPermissionEmbed,
   buildTimeoutEmbed,
 } from "./interactions/permission-handler";
-
+import { trackForAwaySummary, classifyNotification, NotificationTier } from "./notifications";
+import type { AwayTracker } from "./away-tracker";
 
 /** Map URL slugs from hooks.json to canonical hook type names */
 const SLUG_TO_HOOK: Record<string, string> = {
@@ -82,6 +83,8 @@ export class HookReceiver {
     private sender: MessageSender,
     private client: Client,
     private discordConfig: DiscordConfig,
+    private awayTracker?: AwayTracker,
+    private guildOwnerId?: string,
   ) {}
 
   /**
@@ -246,6 +249,9 @@ export class HookReceiver {
       .setTimestamp();
 
     await this.sender.sendEmbed("system", session.forumPostId, embed);
+
+    trackForAwaySummary("SessionEnd", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+
     return { ok: true };
   }
 
@@ -274,6 +280,8 @@ export class HookReceiver {
     await this.sendAlert(
       `🔐 <@${guild.ownerId}> Permission request in <#${session.forumPostId}>`,
     );
+
+    trackForAwaySummary("PermissionRequest", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
     // Wait for the user to click Approve/Deny, or timeout after 9 minutes
     const approved = await new Promise<boolean>((resolve) => {
@@ -344,6 +352,10 @@ export class HookReceiver {
       );
     }
 
+    if (session) {
+      trackForAwaySummary("StopFailure", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+    }
+
     return { ok: true };
   }
 
@@ -366,6 +378,9 @@ export class HookReceiver {
     }
 
     await this.sender.sendEmbed("system", session.forumPostId, embed);
+
+    trackForAwaySummary("PostToolUseFailure", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+
     return { ok: true };
   }
 
@@ -408,6 +423,9 @@ export class HookReceiver {
     }
 
     await this.sender.sendEmbed("system", session.forumPostId, embed);
+
+    trackForAwaySummary("PostCompact", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+
     return { ok: true };
   }
 
@@ -453,6 +471,17 @@ export class HookReceiver {
     const text = `🔔 **${notifType}**: ${truncate(message, 500)}`;
 
     await this.sender.sendAsWebhook("system", session.forumPostId, text);
+
+    // For PING-tier notifications (questions, idle prompts), also send to #alerts
+    const tier = classifyNotification("Notification", payload as Record<string, any>);
+    if (tier === NotificationTier.PING && this.guildOwnerId) {
+      await this.sendAlert(
+        `🔔 <@${this.guildOwnerId}> ${text} → <#${session.forumPostId}>`,
+      );
+    }
+
+    trackForAwaySummary("Notification", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+
     return { ok: true };
   }
 
@@ -468,6 +497,9 @@ export class HookReceiver {
       session.forumPostId,
       `✅ Task completed: **${taskName}**`,
     );
+
+    trackForAwaySummary("TaskCompleted", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
+
     return { ok: true };
   }
 
