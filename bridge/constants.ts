@@ -45,5 +45,9 @@ export const FORUM_CHANNEL_NAME = "sessions";
 export const DASHBOARD_CHANNEL_NAME = "dashboard";
 export const ALERTS_CHANNEL_NAME = "alerts";
 
+// Message length limits
+export const MAX_CONTENT_LENGTH = 1900;
+export const MAX_EMBED_DESCRIPTION = 4000;
+
 // Logging
 export const LOG_PREFIX = "[discord-bridge]";

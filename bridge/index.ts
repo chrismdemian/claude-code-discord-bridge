@@ -14,12 +14,29 @@ import { MessageSender } from "./message-sender";
 import { McpRelay } from "./mcp-relay";
 import { HookReceiver } from "./hook-receiver";
 import {
+  buildResolvedEmbed,
+} from "./interactions/permission-handler";
+import {
   Events,
   EmbedBuilder,
   type ThreadChannel,
 } from "discord.js";
-import type { BridgeSession, DiscordConfig, ContentBlock } from "./types";
+import type {
+  BridgeSession,
+  DiscordConfig,
+  ContentBlock,
+  FormattedMessage,
+  ToolUseBlock,
+  ToolResultBlock,
+} from "./types";
 import { LOG_PREFIX, BRIDGE_PORT, COLORS } from "./constants";
+import { formatToolCall, formatToolResult } from "./formatter";
+import {
+  formatAssistantText,
+  formatUserPrompt,
+  formatSystemEvent,
+} from "./formatters/response-formatter";
+import { calculateCost } from "./formatters/cost";
 
 const sessions = new Map<string, BridgeSession>();
 const tailers = new Map<string, TranscriptTailer>();
@@ -129,7 +146,9 @@ async function main() {
       }
 
       // Deny any pending permission request so the hook script unblocks
-      hookReceiver.resolvePermission(sessionInfo.sessionId, false);
+      if (hookReceiver.hasPendingPermission(sessionInfo.sessionId)) {
+        await hookReceiver.clearPendingPermission(sessionInfo.sessionId);
+      }
       relay.unregister(sessionInfo.sessionId);
       await archiveForumPost(client, discordConfig, bridgeSession.threadId);
       sessions.delete(sessionInfo.sessionId);
@@ -247,6 +266,97 @@ async function main() {
     }
   });
 
+  // 10. Listen for Discord button interactions (permission approve/deny)
+  const guild = await client.guilds.fetch(discordConfig.guildId);
+  const guildOwnerId = guild.ownerId;
+
+  client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isButton()) return;
+
+    const customId = interaction.customId;
+
+    // Only permission buttons for now (all start with "perm_")
+    if (!customId.startsWith("perm_")) return;
+
+    // Access control: only the guild owner can approve/deny permissions
+    if (interaction.user.id !== guildOwnerId) {
+      await interaction.reply({
+        content: "Only the server owner can approve or deny permission requests.",
+        ephemeral: true,
+      }).catch(() => {});
+      return;
+    }
+
+    try {
+      // Permission: Approve
+      if (customId.startsWith("perm_approve_")) {
+        const sessionId = customId.slice("perm_approve_".length);
+        const pending = hookReceiver.getPendingPermission(sessionId);
+        if (!pending) {
+          await interaction.reply({
+            content: "This permission request has already been resolved or expired.",
+            ephemeral: true,
+          });
+          return;
+        }
+        hookReceiver.resolvePermission(sessionId, true);
+        const originalEmbed = interaction.message.embeds[0];
+        if (originalEmbed) {
+          await interaction.update({
+            embeds: [buildResolvedEmbed(originalEmbed, true)],
+            components: [],
+          });
+        } else {
+          await interaction.update({ components: [] });
+        }
+        return;
+      }
+
+      // Permission: Deny
+      if (customId.startsWith("perm_deny_")) {
+        const sessionId = customId.slice("perm_deny_".length);
+        const pending = hookReceiver.getPendingPermission(sessionId);
+        if (!pending) {
+          await interaction.reply({
+            content: "This permission request has already been resolved or expired.",
+            ephemeral: true,
+          });
+          return;
+        }
+        hookReceiver.resolvePermission(sessionId, false);
+        const originalEmbed = interaction.message.embeds[0];
+        if (originalEmbed) {
+          await interaction.update({
+            embeds: [buildResolvedEmbed(originalEmbed, false)],
+            components: [],
+          });
+        } else {
+          await interaction.update({ components: [] });
+        }
+        return;
+      }
+
+      // Permission: Show Context
+      if (customId.startsWith("perm_context_")) {
+        const sessionId = customId.slice("perm_context_".length);
+        const pending = hookReceiver.getPendingPermission(sessionId);
+        const toolInput = pending?.toolInput ?? {};
+        const toolName = pending?.toolName ?? "unknown";
+        const inputJson = JSON.stringify(toolInput, null, 2);
+        const truncated = inputJson.length > 1800
+          ? inputJson.slice(0, 1800) + "\n..."
+          : inputJson;
+        await interaction.reply({
+          content: `**Tool:** ${toolName}\n\`\`\`json\n${truncated}\n\`\`\``,
+          ephemeral: true,
+        });
+        return;
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Interaction error:`, err);
+    }
+  });
+
   console.log(`${LOG_PREFIX} Bridge service ready`);
 
   // Graceful shutdown
@@ -297,7 +407,8 @@ async function updateSessionEmbed(
 
     const projectName = path.basename(session.cwd);
     const icon = session.hasChannelPlugin ? "📡 Connected" : "📖 Read-Only";
-    const startedAtSec = Math.floor(parseInt(session.startedAt, 10) / 1000);
+    const startedMs = Number(session.startedAt) || new Date(session.startedAt).getTime();
+    const startedAtSec = Math.floor(startedMs / 1000);
 
     const embed = new EmbedBuilder()
       .setTitle(`${icon} — ${projectName}`)
@@ -320,85 +431,36 @@ async function updateSessionEmbed(
 
 // ── Transcript → Discord routing ──────────────────────────────────────
 
-const TOOL_WEBHOOK_MAP: Record<string, keyof DiscordConfig["webhooks"]> = {
-  Bash: "terminal",
-  Read: "editor",
-  Edit: "editor",
-  Write: "editor",
-  MultiEdit: "editor",
-  Glob: "editor",
-  Grep: "editor",
-  NotebookEdit: "editor",
-  WebSearch: "claude",
-  WebFetch: "claude",
-  Agent: "claude",
-  TodoRead: "claude",
-  TodoWrite: "claude",
-};
+/** Send a FormattedMessage through the appropriate MessageSender method */
+async function sendFormatted(
+  sender: MessageSender,
+  threadId: string,
+  msg: FormattedMessage,
+): Promise<void> {
+  const hasContent = !!msg.content;
+  const hasEmbeds = !!msg.embeds?.length;
+  const hasFiles = !!msg.files?.length;
 
-function getToolWebhook(toolName: string): keyof DiscordConfig["webhooks"] {
-  if (TOOL_WEBHOOK_MAP[toolName]) return TOOL_WEBHOOK_MAP[toolName];
-  if (toolName.startsWith("mcp__plugin_playwright")) return "playwright";
-  if (toolName.startsWith("mcp__")) return "system";
-  return "claude";
-}
+  // Combine content + embeds + files into a single webhook call when possible
+  if (hasContent || hasEmbeds) {
+    const options: Record<string, unknown> = {};
+    if (hasEmbeds) options.embeds = msg.embeds;
+    if (hasFiles) options.files = msg.files;
 
-function formatToolCall(block: { name: string; input: Record<string, unknown> }): string {
-  switch (block.name) {
-    case "Bash":
-      return `🖥️ \`$ ${block.input.command ?? "..."}\``;
-    case "Read":
-      return `📖 \`Read: ${block.input.file_path ?? "?"}\``;
-    case "Edit":
-    case "MultiEdit":
-      return `✏️ \`Edit: ${block.input.file_path ?? "?"}\``;
-    case "Write":
-      return `📝 \`Write: ${block.input.file_path ?? "?"}\``;
-    case "Glob":
-      return `🔍 \`Glob: ${block.input.pattern ?? "?"}\``;
-    case "Grep":
-      return `🔍 \`Grep: "${block.input.pattern ?? "?"}"\``;
-    case "Agent":
-      return `🤖 \`Agent: ${String(block.input.prompt ?? "").slice(0, 80)}\``;
-    case "WebSearch":
-      return `🔎 \`Search: "${block.input.query ?? "?"}"\``;
-    case "WebFetch":
-      return `🌐 \`Fetch: ${block.input.url ?? "?"}\``;
-    default: {
-      const inputStr = JSON.stringify(block.input).slice(0, 100);
-      return `🔧 \`${block.name}(${inputStr})\``;
-    }
-  }
-}
-
-function extractToolResultText(content: string | unknown[]): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  const parts: string[] = [];
-  for (const item of content) {
-    if (typeof item === "object" && item !== null && "type" in item) {
-      const block = item as Record<string, unknown>;
-      if (block.type === "text" && typeof block.text === "string") {
-        parts.push(block.text);
+    if (hasContent) {
+      await sender.sendAsWebhook(msg.webhook, threadId, msg.content!, options);
+    } else {
+      // Embeds only (no content text)
+      for (const embed of msg.embeds!) {
+        await sender.sendEmbed(msg.webhook, threadId, embed);
       }
     }
+  } else if (hasFiles) {
+    // Files only, no content or embeds
+    for (const file of msg.files!) {
+      await sender.sendFile(msg.webhook, threadId, file);
+    }
   }
-  return parts.join("\n");
-}
-
-function formatToolResult(block: {
-  content: string | unknown[];
-  is_error?: boolean;
-}): string | null {
-  const text = extractToolResultText(block.content);
-  if (!text.trim()) return null;
-
-  const prefix = block.is_error ? "Error: " : "";
-  const truncated =
-    text.length > 1800 ? text.slice(0, 1800) + "\n... (truncated)" : text;
-
-  return `${prefix}\`\`\`\n${truncated}\n\`\`\``;
 }
 
 function wireTranscriptEvents(
@@ -407,53 +469,70 @@ function wireTranscriptEvents(
   sender: MessageSender,
 ): void {
   const threadId = session.forumPostId;
-  // Map tool_use_id → tool name so we can route tool_result to the right webhook
-  const toolUseIdToName = new Map<string, string>();
+  // Store full tool_use blocks for result correlation
+  const toolUseBlocks = new Map<string, ToolUseBlock>();
 
   tailer.on("entry:assistant", async (entry) => {
     try {
       const msg = entry.message;
       if (!msg?.content) return;
 
+      // Update model
+      if (msg.model) {
+        session.model = msg.model;
+      }
+
+      // Accumulate token usage & cost
+      if (msg.usage) {
+        session.inputTokens += msg.usage.input_tokens ?? 0;
+        session.outputTokens += msg.usage.output_tokens ?? 0;
+        if (msg.model) {
+          session.cost += calculateCost(msg.usage, msg.model);
+        }
+      }
+
       // String content (rare for assistant)
       if (typeof msg.content === "string") {
         if (msg.content.trim()) {
-          await sender.sendAsWebhook("claude", threadId, msg.content);
+          const formatted = formatAssistantText(msg.content, session, {
+            model: msg.model,
+            usage: msg.usage,
+          });
+          await sendFormatted(sender, threadId, formatted);
         }
         session.lastActivity = Date.now();
         return;
       }
 
-      // Array of content blocks
+      // Separate text and tool_use blocks
+      const textBlocks: string[] = [];
+      const toolBlocks: ToolUseBlock[] = [];
+
       for (const block of msg.content as ContentBlock[]) {
-        if (block.type === "text" && "text" in block) {
-          if (block.text.trim()) {
-            await sender.sendAsWebhook("claude", threadId, block.text);
-          }
-        } else if (block.type === "tool_use" && "name" in block) {
-          // Track tool_use_id → name for routing tool results
-          if ("id" in block) {
-            toolUseIdToName.set(
-              (block as { id: string }).id,
-              block.name,
-            );
-          }
-          const webhookName = getToolWebhook(block.name);
-          const summary = formatToolCall(block as { name: string; input: Record<string, unknown> });
-          await sender.sendAsWebhook(webhookName, threadId, summary);
+        if (block.type === "text" && "text" in block && block.text.trim()) {
+          textBlocks.push(block.text);
+        } else if (block.type === "tool_use" && "id" in block && "name" in block) {
+          toolBlocks.push(block as ToolUseBlock);
         }
-        // thinking blocks: skip in Phase 3
+        // thinking blocks: not forwarded (security — model signatures)
       }
 
-      // Update model from first assistant entry
-      if (msg.model && session.model === "unknown") {
-        session.model = msg.model;
+      // Send text blocks; last one gets metadata footer if no tool calls follow
+      for (let i = 0; i < textBlocks.length; i++) {
+        const isLast = i === textBlocks.length - 1 && toolBlocks.length === 0;
+        const formatted = formatAssistantText(
+          textBlocks[i],
+          session,
+          isLast ? { model: msg.model, usage: msg.usage } : undefined,
+        );
+        await sendFormatted(sender, threadId, formatted);
       }
 
-      // Accumulate token usage
-      if (msg.usage) {
-        session.inputTokens += msg.usage.input_tokens ?? 0;
-        session.outputTokens += msg.usage.output_tokens ?? 0;
+      // Send tool call headers + track for result correlation
+      for (const block of toolBlocks) {
+        toolUseBlocks.set(block.id, block);
+        const formatted = formatToolCall(block);
+        await sendFormatted(sender, threadId, formatted);
       }
 
       session.lastActivity = Date.now();
@@ -480,10 +559,10 @@ function wireTranscriptEvents(
         ) {
           return;
         }
-        // Skip empty prompts
         if (!text.trim()) return;
 
-        await sender.sendAsWebhook("claude", threadId, `**You:** ${text}`);
+        const formatted = formatUserPrompt(text);
+        await sendFormatted(sender, threadId, formatted);
         session.turnCount++;
         session.lastActivity = Date.now();
         return;
@@ -498,19 +577,23 @@ function wireTranscriptEvents(
             "type" in block &&
             (block as { type: string }).type === "tool_result"
           ) {
-            const resultBlock = block as {
-              content: string | unknown[];
-              is_error?: boolean;
-              tool_use_id?: string;
-            };
-            const formatted = formatToolResult(resultBlock);
+            const resultBlock = block as ToolResultBlock;
+            const toolUse = resultBlock.tool_use_id
+              ? toolUseBlocks.get(resultBlock.tool_use_id)
+              : undefined;
+            const toolName = toolUse?.name ?? "unknown";
+
+            const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
-              // Route to the correct webhook based on the originating tool
-              const toolName = resultBlock.tool_use_id
-                ? (toolUseIdToName.get(resultBlock.tool_use_id) ?? "unknown")
-                : "unknown";
-              const webhookName = getToolWebhook(toolName);
-              await sender.sendAsWebhook(webhookName, threadId, formatted);
+              const messages = Array.isArray(formatted) ? formatted : [formatted];
+              for (const fmtMsg of messages) {
+                await sendFormatted(sender, threadId, fmtMsg);
+              }
+            }
+
+            // Clean up after result is processed to prevent memory leak
+            if (resultBlock.tool_use_id) {
+              toolUseBlocks.delete(resultBlock.tool_use_id);
             }
           }
         }
@@ -524,15 +607,10 @@ function wireTranscriptEvents(
 
   tailer.on("entry:system", async (entry) => {
     try {
-      if (entry.subtype === "turn_duration" && entry.durationMs) {
-        const seconds = (entry.durationMs / 1000).toFixed(1);
-        await sender.sendAsWebhook(
-          "system",
-          threadId,
-          `⏱️ Turn completed in ${seconds}s`,
-        );
+      const formatted = formatSystemEvent(entry, session);
+      if (formatted) {
+        await sendFormatted(sender, threadId, formatted);
       }
-      // Other system subtypes: skip in Phase 3
     } catch (err) {
       console.error(`${LOG_PREFIX} Error processing system entry:`, err);
     }

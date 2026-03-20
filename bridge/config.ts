@@ -2,8 +2,10 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import { config as dotenvConfig } from "dotenv";
-import type { DiscordConfig } from "./types";
+import type { AccessConfig, DiscordConfig } from "./types";
 import { BRIDGE_PORT, LOG_PREFIX } from "./constants";
+
+const SNOWFLAKE_RE = /^\d{17,20}$/;
 
 export interface BridgeConfig {
   token: string;
@@ -80,6 +82,78 @@ export async function loadDiscordConfig(): Promise<DiscordConfig | null> {
     const file = Bun.file(filePath);
     if (!(await file.exists())) return null;
     return (await file.json()) as DiscordConfig;
+  } catch {
+    return null;
+  }
+}
+
+/** Check whether the bridge has been configured (both .env and discord.json exist) */
+export function isConfigured(): boolean {
+  const dataPath = getPluginDataPath();
+  return (
+    fs.existsSync(path.join(dataPath, ".env")) &&
+    fs.existsSync(path.join(dataPath, "discord.json"))
+  );
+}
+
+/** Validate saved config without hitting the Discord API */
+export function validateConfig(
+  discord: DiscordConfig | null,
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!process.env.DISCORD_TOKEN) {
+    errors.push("DISCORD_TOKEN is missing");
+  }
+
+  if (!discord) {
+    errors.push("discord.json not found — run setup first");
+    return { valid: false, errors };
+  }
+
+  if (!SNOWFLAKE_RE.test(discord.guildId)) errors.push("Invalid guildId");
+  if (!SNOWFLAKE_RE.test(discord.forumChannelId))
+    errors.push("Invalid forumChannelId");
+  if (!SNOWFLAKE_RE.test(discord.dashboardChannelId))
+    errors.push("Invalid dashboardChannelId");
+  if (!SNOWFLAKE_RE.test(discord.alertsChannelId))
+    errors.push("Invalid alertsChannelId");
+  if (!SNOWFLAKE_RE.test(discord.categoryId)) errors.push("Invalid categoryId");
+
+  const expectedWebhooks = [
+    "claude",
+    "terminal",
+    "editor",
+    "playwright",
+    "git",
+    "system",
+  ] as const;
+  for (const name of expectedWebhooks) {
+    const wh = discord.webhooks[name];
+    if (!wh?.id || !wh?.token) {
+      errors.push(`Webhook "${name}" missing id or token`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Save access control config */
+export async function saveAccessConfig(config: AccessConfig): Promise<void> {
+  const dataPath = getPluginDataPath();
+  const filePath = path.join(dataPath, "access.json");
+  await Bun.write(filePath, JSON.stringify(config, null, 2));
+  console.log(`${LOG_PREFIX} Access config saved to ${filePath}`);
+}
+
+/** Load access control config, or null if not yet set up */
+export async function loadAccessConfig(): Promise<AccessConfig | null> {
+  const dataPath = getPluginDataPath();
+  const filePath = path.join(dataPath, "access.json");
+  try {
+    const file = Bun.file(filePath);
+    if (!(await file.exists())) return null;
+    return (await file.json()) as AccessConfig;
   } catch {
     return null;
   }

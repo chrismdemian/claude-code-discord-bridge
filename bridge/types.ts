@@ -1,3 +1,13 @@
+import type { EmbedBuilder, AttachmentBuilder } from "discord.js";
+
+/** Formatted message ready to send to Discord */
+export interface FormattedMessage {
+  webhook: keyof DiscordConfig["webhooks"];
+  content?: string;
+  embeds?: EmbedBuilder[];
+  files?: AttachmentBuilder[];
+}
+
 /** Session state tracked by the bridge */
 export interface BridgeSession {
   sessionId: string;
@@ -259,4 +269,9 @@ export interface WorktreeCreateHook {
 export interface WorktreeRemoveHook {
   session_id: string;
   name?: string;
+}
+
+/** Access control configuration */
+export interface AccessConfig {
+  allowedUsers: string[];
 }

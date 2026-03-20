@@ -1,4 +1,4 @@
-import { EmbedBuilder, type Client, type TextChannel } from "discord.js";
+import { EmbedBuilder, type Client, type TextChannel, type ThreadChannel } from "discord.js";
 import type { MessageSender } from "./message-sender";
 import type {
   BridgeSession,
@@ -20,6 +20,11 @@ import type {
   WorktreeRemoveHook,
 } from "./types";
 import { COLORS, LOG_PREFIX } from "./constants";
+import { truncate, formatDuration } from "./formatters/utils";
+import {
+  buildPermissionEmbed,
+  buildTimeoutEmbed,
+} from "./interactions/permission-handler";
 
 /** Map URL slugs from hooks.json to canonical hook type names */
 const SLUG_TO_HOOK: Record<string, string> = {
@@ -51,18 +56,25 @@ const ALERT_FAILURE_TYPES = new Set([
   "server_error",
 ]);
 
+/** State for a pending permission request awaiting Discord button click */
+export interface PendingPermission {
+  resolve: (approved: boolean) => void;
+  messageId: string;
+  forumPostId: string;
+  toolInput: Record<string, unknown>;
+  toolName: string;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 /**
  * Receives and processes hook events POSTed by Claude Code (HTTP hooks)
  * and by hook scripts (command hooks like permission-request.ts).
  *
  * Posts formatted embeds/messages to the session's Discord forum post.
- * Manages the permission approval queue for Phase 8 button integration.
+ * Manages the permission approval flow with Discord buttons.
  */
 export class HookReceiver {
-  private permissionResolvers = new Map<
-    string,
-    (approved: boolean) => void
-  >();
+  private pendingPermissions = new Map<string, PendingPermission>();
 
   constructor(
     private sessions: Map<string, BridgeSession>,
@@ -139,20 +151,55 @@ export class HookReceiver {
   }
 
   /**
-   * Resolve a pending permission request. Called by Phase 8's Discord
-   * button interaction handler when user clicks Approve/Deny.
+   * Resolve a pending permission request. Called by the Discord button
+   * interaction handler when the user clicks Approve or Deny.
    */
   resolvePermission(sessionId: string, approved: boolean): void {
-    const resolver = this.permissionResolvers.get(sessionId);
-    if (resolver) {
-      resolver(approved);
-      this.permissionResolvers.delete(sessionId);
+    const pending = this.pendingPermissions.get(sessionId);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pending.resolve(approved);
+      this.pendingPermissions.delete(sessionId);
     }
   }
 
   /** Check if a session has a pending permission request */
   hasPendingPermission(sessionId: string): boolean {
-    return this.permissionResolvers.has(sessionId);
+    return this.pendingPermissions.has(sessionId);
+  }
+
+  /** Get the pending permission data (for the interaction handler) */
+  getPendingPermission(sessionId: string): PendingPermission | undefined {
+    return this.pendingPermissions.get(sessionId);
+  }
+
+  /**
+   * Clean up a pending permission on timeout or session end.
+   * Updates the Discord embed to show "timed out" and auto-denies.
+   */
+  async clearPendingPermission(sessionId: string): Promise<void> {
+    const pending = this.pendingPermissions.get(sessionId);
+    if (!pending) return;
+
+    // Delete from map first (before any async work) to prevent race
+    // conditions where a button click arrives during the await below.
+    this.pendingPermissions.delete(sessionId);
+    clearTimeout(pending.timeout);
+    pending.resolve(false);
+
+    // Update the Discord embed to show timeout
+    try {
+      const channel = await this.client.channels.fetch(pending.forumPostId);
+      if (channel?.isThread()) {
+        const message = await (channel as ThreadChannel).messages.fetch(pending.messageId);
+        if (message?.embeds[0]) {
+          const timeoutEmbed = buildTimeoutEmbed(message.embeds[0]);
+          await message.edit({ embeds: [timeoutEmbed], components: [] });
+        }
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Failed to update timed-out permission embed:`, err);
+    }
   }
 
   // ── Handler implementations ──────────────────────────────────────────
@@ -205,38 +252,48 @@ export class HookReceiver {
     payload: PermissionRequestHook,
   ): Promise<{ approved: boolean }> {
     const session = this.sessions.get(payload.session_id);
+    if (!session) return { approved: false };
 
     // Build a display string for what Claude wants to do
     const description =
       payload.description ??
       formatPermissionDescription(payload.tool_name, payload.tool_input);
 
-    const embed = new EmbedBuilder()
-      .setTitle("🔐 Permission Request")
-      .setColor(COLORS.YELLOW)
-      .setDescription(
-        `Claude wants to run:\n\`\`\`\n${truncate(description, 1800)}\n\`\`\``,
-      )
-      .addFields(
-        { name: "Tool", value: payload.tool_name, inline: true },
-        {
-          name: "Session",
-          value: payload.session_id.slice(0, 18),
-          inline: true,
-        },
-      )
-      .setFooter({
-        text: "Auto-approved (interactive buttons coming in Phase 8)",
-      })
-      .setTimestamp();
+    // Build embed with Approve/Deny/Context buttons
+    const { embeds, components } = buildPermissionEmbed(payload, description);
 
-    if (session) {
-      await this.sender.sendEmbed("system", session.forumPostId, embed);
-    }
+    // Send via bot client (not webhook) so InteractionCreate routes to us
+    const channel = await this.client.channels.fetch(session.forumPostId);
+    if (!channel?.isThread()) return { approved: false };
 
-    // Phase 6: auto-approve immediately.
-    // Phase 8 will replace this with a promise that waits for button clicks.
-    return { approved: true };
+    const message = await (channel as ThreadChannel).send({ embeds, components });
+
+    // Send @mention to #alerts so the user gets a phone notification
+    const guild = await this.client.guilds.fetch(this.discordConfig.guildId);
+    await this.sendAlert(
+      `🔐 <@${guild.ownerId}> Permission request in <#${session.forumPostId}>`,
+    );
+
+    // Wait for the user to click Approve/Deny, or timeout after 9 minutes
+    const approved = await new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (this.pendingPermissions.has(payload.session_id)) {
+          console.log(`${LOG_PREFIX} Permission timed out for session ${payload.session_id.slice(0, 8)}`);
+          this.clearPendingPermission(payload.session_id);
+        }
+      }, 9 * 60 * 1000);
+
+      this.pendingPermissions.set(payload.session_id, {
+        resolve,
+        messageId: message.id,
+        forumPostId: session.forumPostId,
+        toolInput: payload.tool_input,
+        toolName: payload.tool_name,
+        timeout,
+      });
+    });
+
+    return { approved };
   }
 
   private async handleStop(payload: StopHook): Promise<{ ok: true }> {
@@ -504,22 +561,6 @@ export class HookReceiver {
 }
 
 // ── Utility functions ──────────────────────────────────────────────────
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength - 3) + "...";
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${remainingMinutes}m`;
-}
 
 function formatFailureType(type: string): string {
   return type

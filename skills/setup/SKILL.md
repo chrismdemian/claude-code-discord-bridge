@@ -32,6 +32,7 @@ Walk the user through setting up the Discord bridge.
    ```
    DISCORD_GUILD_ID=<the guild id>
    ```
+   To find the Server ID: enable **Developer Mode** in Discord settings (User Settings > Advanced > Developer Mode), then right-click the server name and click **Copy Server ID**. If no guild ID is provided, the setup script will auto-discover the first guild the bot is in.
 
 5. Run the bridge service to set up Discord server structure:
    ```bash
@@ -58,7 +59,7 @@ Walk the user through setting up the Discord bridge.
    curl http://localhost:7676/health
    ```
 
-8. Show the user the Discord server invite link and suggest they join on their phone.
+8. Show the user the Discord server invite link (printed by the setup script output) and suggest they join on their phone.
 
 9. Remind the user of manual actions:
    - **BOT AVATAR**: If the auto-set avatar failed, go to Discord Developer Portal > Your App > Bot > Upload the Claude Code crab icon
@@ -72,3 +73,5 @@ Walk the user through setting up the Discord bridge.
 - If channels already exist: setup will reuse them (idempotent)
 - If pm2 is not installed: `npm install -g pm2`
 - Check bridge logs: `npx pm2 logs discord-bridge`
+- If `setUsername` fails: Discord limits bot username changes to 2 per hour. Wait and retry, or change it manually in the Developer Portal.
+- If guild creation fails: create a server manually in Discord, invite the bot, and add `DISCORD_GUILD_ID` to `.env` before re-running setup.
