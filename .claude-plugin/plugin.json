@@ -1,0 +1,9 @@
+{
+  "name": "discord-bridge",
+  "description": "Full-featured Discord bridge for Claude Code — mirror sessions, send prompts, approve permissions, all from your phone. Auto-discovers running instances and creates forum posts per session.",
+  "version": "0.1.0",
+  "keywords": ["discord", "mobile", "remote", "channel", "bridge", "mirror", "mcp"],
+  "author": "chrismdemian",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/chrismdemian/claude-code-discord-bridge"
+}

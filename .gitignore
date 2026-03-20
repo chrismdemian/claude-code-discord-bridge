@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build
+dist/
+*.js
+*.d.ts
+*.js.map
+!jest.config.js
+
+# Plugin data (local state)
+.claude/
+*.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Research docs (not part of the distributed plugin)
+research-*.md
+PRODUCT.md

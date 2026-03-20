@@ -1,0 +1,17 @@
+{
+  "name": "claude-code-discord-bridge",
+  "version": "0.1.0",
+  "description": "Control Claude Code from your phone via Discord",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": "./server.ts",
+  "scripts": {
+    "start": "bun install --no-summary && bun server.ts",
+    "bridge": "bun run bridge/index.ts",
+    "dev": "bun --watch bridge/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "discord.js": "^14.14.0"
+  }
+}
