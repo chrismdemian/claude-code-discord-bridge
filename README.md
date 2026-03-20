@@ -21,13 +21,9 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 ## Install
 
 ```bash
-# From GitHub (available now)
 git clone https://github.com/chrismdemian/claude-code-discord-bridge.git
 cd claude-code-discord-bridge
 bun install
-
-# Or when available on the marketplace:
-# claude plugin install discord-bridge@marketplace
 ```
 
 Then run the setup wizard:
@@ -42,7 +38,7 @@ Paste your Discord bot token. Everything else is automatic: server created, chan
 
 ## What You Get
 
-**Full output mirroring**, not just a chat bridge. Every tool call, diff, terminal output, and screenshot appears in Discord, formatted for mobile.
+**Full output mirroring** — not just a chat bridge. Every tool call, diff, terminal output, and screenshot appears in Discord, formatted for mobile.
 
 <!-- TODO: Replace with actual screenshot -->
 ![Session View](https://via.placeholder.com/800x500.png?text=REPLACE+WITH+SESSION+SCREENSHOT)
@@ -136,7 +132,7 @@ Each Claude Code session becomes a forum post with status tags:
 
 ### Tool Calls in Threads
 
-Main post stays clean, just your prompts and Claude's responses. Tool call details live in expandable threads:
+Main post stays clean — just your prompts and Claude's responses. Tool call details live in expandable threads:
 
 <!-- TODO: Replace with actual screenshot -->
 ![Thread View](https://via.placeholder.com/800x500.png?text=REPLACE+WITH+THREAD+SCREENSHOT)
@@ -190,7 +186,7 @@ Discord-specific commands:
 
 ## Architecture
 
-Built on Anthropic's **Channels** system, the MCP capability that allows external services to push messages into Claude Code sessions.
+Built on Anthropic's **Channels** system — the MCP capability that allows external services to push messages into Claude Code sessions.
 
 **Output mirroring** uses transcript tailing (not hooks alone), giving ~99% coverage of everything Claude does. The transcript JSONL file is written synchronously by Claude Code, making it a reliable real-time data source.
 
