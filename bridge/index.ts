@@ -26,11 +26,11 @@ import { showPromptModal, handleModalSubmit } from "./interactions/modal-handler
 import { registerCommands, handleCommand } from "./interactions/commands";
 import { handleReactionAdd } from "./interactions/reactions";
 import {
+  handlePlanClearExec,
   handlePlanExecute,
+  handlePlanApprove,
   handlePlanModify,
   handlePlanModifySubmit,
-  handlePlanClear,
-  handlePlanChat,
 } from "./interactions/plan-handler";
 import {
   extractPlanTitle,
@@ -524,7 +524,18 @@ async function main() {
           return;
         }
 
-        // Plan mode buttons
+        // Plan mode buttons (check plan_clearexec_ before plan_clear_ to avoid prefix collision)
+        if (customId.startsWith("plan_clearexec_")) {
+          const sessionId = customId.slice("plan_clearexec_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanClearExec(interaction, session, relay);
+          return;
+        }
+
         if (customId.startsWith("plan_execute_")) {
           const sessionId = customId.slice("plan_execute_".length);
           const session = sessions.get(sessionId);
@@ -536,6 +547,17 @@ async function main() {
           return;
         }
 
+        if (customId.startsWith("plan_approve_")) {
+          const sessionId = customId.slice("plan_approve_".length);
+          const session = sessions.get(sessionId);
+          if (!session) {
+            await interaction.reply({ content: "Session not found.", ephemeral: true });
+            return;
+          }
+          await handlePlanApprove(interaction, session, relay);
+          return;
+        }
+
         if (customId.startsWith("plan_modify_")) {
           const sessionId = customId.slice("plan_modify_".length);
           const session = sessions.get(sessionId);
@@ -544,28 +566,6 @@ async function main() {
             return;
           }
           await handlePlanModify(interaction, session);
-          return;
-        }
-
-        if (customId.startsWith("plan_clear_")) {
-          const sessionId = customId.slice("plan_clear_".length);
-          const session = sessions.get(sessionId);
-          if (!session) {
-            await interaction.reply({ content: "Session not found.", ephemeral: true });
-            return;
-          }
-          await handlePlanClear(interaction, session, relay);
-          return;
-        }
-
-        if (customId.startsWith("plan_chat_")) {
-          const sessionId = customId.slice("plan_chat_".length);
-          const session = sessions.get(sessionId);
-          if (!session) {
-            await interaction.reply({ content: "Session not found.", ephemeral: true });
-            return;
-          }
-          await handlePlanChat(interaction, session);
           return;
         }
       }
@@ -726,6 +726,14 @@ function wireTranscriptEvents(
 
   tailer.on("entry:assistant", async (entry) => {
     try {
+      // Track plan mode from permissionMode field on transcript entries
+      const pm = (entry as Record<string, unknown>).permissionMode;
+      if (pm === "plan" && !session.planMode) {
+        session.planMode = true;
+      } else if (pm && pm !== "plan" && session.planMode) {
+        session.planMode = false;
+      }
+
       // Clear working message when assistant responds
       if (session.workingMessageId) {
         await clearWorkingMessage(client, session);
@@ -785,11 +793,28 @@ function wireTranscriptEvents(
         await sendFormatted(sender, threadId, formatted);
       }
 
-      // Plan mode: detect plan content in assistant text (only when planMode flag is set)
-      if (session.planMode && textBlocks.length > 0 && toolBlocks.length === 0) {
-        const planText = textBlocks.join("\n\n");
-        const steps = parsePlanSteps(planText);
+      // Plan mode detection: two paths
+      // 1. ExitPlanMode tool_use — agent-initiated plan, plan text in input.plan
+      // 2. planMode flag + text-only response — user-initiated plan via /plan
+      let planText: string | null = null;
 
+      // Path 1: ExitPlanMode tool call contains the plan
+      for (const block of toolBlocks) {
+        if (block.name === "ExitPlanMode" && block.input?.plan) {
+          planText = String(block.input.plan);
+          session.planMode = true; // Mark as in plan mode for button display
+          break;
+        }
+      }
+
+      // Path 2: User-initiated plan mode — text-only response while planMode is set
+      if (!planText && session.planMode && textBlocks.length > 0 && toolBlocks.length === 0) {
+        planText = textBlocks.join("\n\n");
+      }
+
+      // Show plan embed if we found plan content
+      if (planText) {
+        const steps = parsePlanSteps(planText);
         if (steps.length > 0) {
           const title = extractPlanTitle(planText);
           session.planSteps = steps;
@@ -841,6 +866,14 @@ function wireTranscriptEvents(
 
   tailer.on("entry:user", async (entry) => {
     try {
+      // Track plan mode from permissionMode field on transcript entries
+      const pm = (entry as Record<string, unknown>).permissionMode;
+      if (pm === "plan" && !session.planMode) {
+        session.planMode = true;
+      } else if (pm && pm !== "plan" && session.planMode) {
+        session.planMode = false;
+      }
+
       const msg = entry.message;
       if (!msg) return;
 

@@ -36,7 +36,14 @@ export function parsePlanSteps(planText: string): PlanStep[] {
   return steps;
 }
 
-/** Build the initial plan embed with action buttons */
+/**
+ * Build the initial plan embed with action buttons matching the real
+ * plan mode options:
+ *   1. Yes, clear context (X% used) and bypass permissions
+ *   2. Yes, and bypass permissions
+ *   3. Yes, manually approve edits
+ *   4. Type here to tell Claude what to change  (→ Modify modal)
+ */
 export function buildPlanEmbed(
   planText: string,
   steps: PlanStep[],
@@ -47,7 +54,6 @@ export function buildPlanEmbed(
     .setColor(COLORS.GREEN)
     .setTitle(`📋 Plan: ${title}`)
     .setDescription(truncate(planText, MAX_EMBED_DESCRIPTION))
-    .setFooter({ text: "Context remaining: N/A" })
     .setTimestamp();
 
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
@@ -56,20 +62,20 @@ export function buildPlanEmbed(
   if (session.hasChannelPlugin) {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
+        .setCustomId(`plan_clearexec_${session.sessionId}`)
+        .setLabel("Clear & Execute")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
         .setCustomId(`plan_execute_${session.sessionId}`)
         .setLabel("Execute")
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`plan_modify_${session.sessionId}`)
-        .setLabel("Modify")
+        .setCustomId(`plan_approve_${session.sessionId}`)
+        .setLabel("Execute (approve edits)")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId(`plan_clear_${session.sessionId}`)
-        .setLabel("Clear Context")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`plan_chat_${session.sessionId}`)
-        .setLabel("Chat")
+        .setCustomId(`plan_modify_${session.sessionId}`)
+        .setLabel("Modify")
         .setStyle(ButtonStyle.Secondary),
     );
     components.push(row);
