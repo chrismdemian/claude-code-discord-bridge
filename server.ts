@@ -233,6 +233,7 @@ async function pollForMessages(sessionId: string): Promise<void> {
 
 // ── MCP Tools ────────────────────────────────────────────────────────
 
+// @ts-expect-error - zod + MCP SDK type depth issue (runtime works fine)
 server.tool(
   "send_to_discord",
   "Send files or images to the current Discord session. Use this to forward screenshots, generated images, or other files the user should see.",
