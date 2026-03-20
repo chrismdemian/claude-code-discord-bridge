@@ -21,9 +21,8 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 ## Install
 
 ```bash
-git clone https://github.com/chrismdemian/claude-code-discord-bridge.git
-cd claude-code-discord-bridge
-bun install
+/plugin marketplace add chrismdemian/claude-code-discord-bridge
+/plugin install discord-bridge@claude-code-discord-bridge
 ```
 
 Then run the setup wizard:
@@ -97,10 +96,9 @@ Enable these intents under Bot settings:
 ### 2. Install and Configure
 
 ```bash
-# Clone and install
-git clone https://github.com/chrismdemian/claude-code-discord-bridge.git
-cd claude-code-discord-bridge
-bun install
+# Add the marketplace and install
+/plugin marketplace add chrismdemian/claude-code-discord-bridge
+/plugin install discord-bridge@claude-code-discord-bridge
 
 # Run the setup wizard
 /discord-bridge:setup
