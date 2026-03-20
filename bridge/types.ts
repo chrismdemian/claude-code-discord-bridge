@@ -149,3 +149,114 @@ export interface PluginRegistration {
   pid: number;
   cwd: string;
 }
+
+// ── Hook Payload Types ─────────────────────────────────────────────────
+// Each interface matches the JSON body Claude Code sends for that hook event.
+// All fields except session_id are optional — hooks may evolve over time.
+
+export interface SessionStartHook {
+  session_id: string;
+  cwd?: string;
+}
+
+export interface SessionEndHook {
+  session_id: string;
+  reason?: string; // 'clear' | 'resume' | 'logout' | 'exit'
+}
+
+export interface PermissionRequestHook {
+  hook_type: string;
+  session_id: string;
+  pid: number;
+  cwd: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  description?: string;
+}
+
+export interface StopHook {
+  session_id: string;
+  last_assistant_message?: string;
+}
+
+export interface StopFailureHook {
+  session_id: string;
+  failure_type?: string; // 'rate_limit' | 'authentication_failed' | 'billing_error' | 'server_error'
+  error?: string;
+}
+
+export interface PostToolUseHook {
+  session_id: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+}
+
+export interface PostToolUseFailureHook {
+  session_id: string;
+  tool_name?: string;
+  error?: string;
+}
+
+export interface PreCompactHook {
+  session_id: string;
+}
+
+export interface PostCompactHook {
+  session_id: string;
+  compact_summary?: string;
+  tokens_before?: number;
+  tokens_after?: number;
+}
+
+export interface SubagentStartHook {
+  session_id: string;
+  agent_id?: string;
+  agent_type?: string;
+  prompt?: string;
+}
+
+export interface SubagentStopHook {
+  session_id: string;
+  agent_id?: string;
+  result?: string;
+}
+
+export interface NotificationHook {
+  session_id: string;
+  notification_type?: string;
+  message?: string;
+}
+
+export interface UserPromptSubmitHook {
+  session_id: string;
+  prompt?: string;
+}
+
+export interface TaskCompletedHook {
+  session_id: string;
+  task_id?: string;
+  task_name?: string;
+}
+
+export interface TeammateIdleHook {
+  session_id: string;
+  teammate_id?: string;
+}
+
+export interface ConfigChangeHook {
+  session_id: string;
+  key?: string;
+  value?: unknown;
+}
+
+export interface WorktreeCreateHook {
+  session_id: string;
+  name?: string;
+  branch?: string;
+  path?: string;
+}
+
+export interface WorktreeRemoveHook {
+  session_id: string;
+  name?: string;
+}
