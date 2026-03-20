@@ -36,3 +36,4 @@ npm-debug.log*
 # Research docs (not part of the distributed plugin)
 research-*.md
 PRODUCT.md
+CLAUDE.md
