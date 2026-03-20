@@ -26,6 +26,7 @@ export interface BridgeSession {
   lastActivity: number;
   transcriptPath: string;
   transcriptOffset: number;
+  workingMessageId: string | null;
 }
 
 /** Discord resource IDs stored after setup */
