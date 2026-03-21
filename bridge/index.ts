@@ -445,8 +445,8 @@ async function main() {
         startTypingIndicator(client, session);
       } else if (message.attachments.size === 0) {
         // Only show read-only notice if there were no attachments (file handler already responds)
-        await message
-          .reply("📖 This session is read-only (no channel plugin connected).")
+        await messageSender
+          .sendAsWebhook("claude", session.threadId, "📖 This session is read-only (no channel plugin connected).")
           .catch(() => {});
       }
     }

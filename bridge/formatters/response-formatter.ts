@@ -30,10 +30,6 @@ export function formatAssistantText(
       const totalTokens = (meta.usage.input_tokens + meta.usage.output_tokens) / 1000;
       parts.push(`${totalTokens.toFixed(1)}k tokens`);
     }
-    if (meta.usage && meta.model) {
-      const cost = calculateCost(meta.usage, meta.model);
-      parts.push(`$${cost.toFixed(2)}`);
-    }
 
     if (parts.length > 0) {
       content += `\n-# ${parts.join(" · ")}`;
