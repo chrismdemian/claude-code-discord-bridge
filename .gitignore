@@ -37,3 +37,7 @@ npm-debug.log*
 research-*.md
 PRODUCT.md
 CLAUDE.md
+
+# Codex local instruction files
+AGENTS.md
+
