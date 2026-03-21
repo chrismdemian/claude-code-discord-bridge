@@ -2,14 +2,43 @@ import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } f
 import { extractResultText, truncate, wrapCodeBlock } from "./utils";
 
 export function formatAgentCall(toolUse: ToolUseBlock): FormattedMessage {
-  const subagentType = toolUse.input.subagent_type
-    ? ` (${String(toolUse.input.subagent_type)})`
-    : "";
-  const prompt = truncate(String(toolUse.input.prompt ?? ""), 800);
+  const agentType = String(toolUse.input.subagent_type ?? "Agent");
+  const description = String(toolUse.input.description ?? "");
+  const prompt = truncate(String(toolUse.input.prompt ?? ""), 100);
+  const summary = description || prompt;
+
   return {
     webhook: "claude",
-    content: `🤖 \`Agent${subagentType}: "${prompt}"\``,
+    content: `🤖 **${agentType}** · ${summary}`,
   };
+}
+
+/** Parse <usage> block from agent output to build a compact summary */
+function parseUsage(text: string): { summary: string; cleaned: string } | null {
+  const usageMatch = text.match(/<usage>\s*([\s\S]*?)\s*<\/usage>/);
+  if (!usageMatch) return null;
+
+  const usageBlock = usageMatch[1];
+  const parts: string[] = [];
+
+  const toolUses = usageBlock.match(/tool_uses[:\s]+(\d+)/i);
+  if (toolUses) parts.push(`${toolUses[1]} tool uses`);
+
+  const tokens = usageBlock.match(/total_tokens[:\s]+(\d+)/i);
+  if (tokens) {
+    const k = Math.round(parseInt(tokens[1], 10) / 1000);
+    parts.push(`${k}k tokens`);
+  }
+
+  const duration = usageBlock.match(/duration_ms[:\s]+(\d+)/i);
+  if (duration) {
+    const secs = (parseInt(duration[1], 10) / 1000).toFixed(1);
+    parts.push(`${secs}s`);
+  }
+
+  const summary = parts.length > 0 ? `Done · ${parts.join(" · ")}` : "Done";
+  const cleaned = text.replace(/<usage>\s*[\s\S]*?<\/usage>\s*/g, "").trim();
+  return { summary, cleaned };
 }
 
 export function formatAgentResult(
@@ -17,13 +46,30 @@ export function formatAgentResult(
   result: ToolResultBlock,
   _session: BridgeSession,
 ): FormattedMessage | null {
-  const text = extractResultText(result.content);
+  let text = extractResultText(result.content);
   if (!text.trim()) return null;
 
-  // Wrap in code block to prevent Discord markdown rendering of agent output.
-  // splitMessage in MessageSender will handle chunking and preserve code blocks.
+  // Parse usage block for compact summary
+  const usage = parseUsage(text);
+  if (usage) {
+    text = usage.cleaned;
+  }
+
+  // Build compact output: summary line + truncated content in code block (monospace handles tables)
+  const summaryLine = usage ? `-# ${usage.summary}` : "";
+
+  // Truncate long results before wrapping
+  const maxLen = 1500;
+  if (text.length > maxLen) {
+    text = text.slice(0, maxLen) + "\n... (truncated)";
+  }
+
+  const content = summaryLine
+    ? `${summaryLine}\n${wrapCodeBlock(text)}`
+    : wrapCodeBlock(text);
+
   return {
     webhook: "claude",
-    content: wrapCodeBlock(text),
+    content,
   };
 }

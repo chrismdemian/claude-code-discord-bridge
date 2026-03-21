@@ -161,6 +161,7 @@ export class TranscriptTailer extends EventEmitter<TranscriptTailerEvents> {
         this.emit("entry:progress", entry);
         break;
       case "custom-title":
+      case "summary":
         this.emit("entry:custom-title", entry);
         break;
       // Unknown types: silently skip

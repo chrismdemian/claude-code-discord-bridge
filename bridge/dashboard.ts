@@ -1,8 +1,7 @@
-import * as path from "node:path";
 import { EmbedBuilder, type Client, type TextChannel } from "discord.js";
 import type { BridgeSession } from "./types";
 import { COLORS, LOG_PREFIX } from "./constants";
-import { formatDuration } from "./formatters/utils";
+import { formatDuration, parseProjectName } from "./formatters/utils";
 
 const REFRESH_INTERVAL_MS = 30_000; // 30 seconds
 const DEBOUNCE_MS = 2_000; // 2 seconds
@@ -91,7 +90,7 @@ export class Dashboard {
         s.status === "active" ? "\uD83D\uDFE2" :
         s.status === "working" ? "\uD83D\uDFE1" :
         s.status === "error" ? "\uD83D\uDD34" : "\u2B1C";
-      const projectName = path.basename(s.cwd);
+      const projectName = parseProjectName(s.cwd);
       const statusText = s.status === "error" ? "needs input" : s.status;
       const ago = formatDuration(Math.max(0, Date.now() - s.lastActivity));
       const costStr = `$${s.cost.toFixed(2)}`;

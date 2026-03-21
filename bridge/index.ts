@@ -65,8 +65,10 @@ import {
   formatSystemEvent,
 } from "./formatters/response-formatter";
 import { calculateCost } from "./formatters/cost";
+import { parseProjectName } from "./formatters/utils";
 
 const sessions = new Map<string, BridgeSession>();
+const pendingSessionIds = new Set<string>();
 const tailers = new Map<string, TranscriptTailer>();
 const typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const typingGeneration = new Map<string, number>();
@@ -128,6 +130,10 @@ async function main() {
   const scanner = new SessionScanner();
 
   scanner.on("session:discovered", async (sessionInfo) => {
+    // Dedup: prevent race conditions when multiple events fire before async handler completes
+    if (sessions.has(sessionInfo.sessionId) || pendingSessionIds.has(sessionInfo.sessionId)) return;
+    pendingSessionIds.add(sessionInfo.sessionId);
+
     try {
       const post = await createForumPost(client, discordConfig, {
         sessionId: sessionInfo.sessionId,
@@ -167,6 +173,7 @@ async function main() {
       }
 
       sessions.set(sessionInfo.sessionId, bridgeSession);
+      pendingSessionIds.delete(sessionInfo.sessionId);
       setBotPresence(client, sessions.size);
       dashboard.refresh();
 
@@ -200,6 +207,7 @@ async function main() {
       wireTranscriptEvents(tailer, bridgeSession, messageSender, client);
       tailer.start();
     } catch (err) {
+      pendingSessionIds.delete(sessionInfo.sessionId);
       console.error(
         `${LOG_PREFIX} Failed to handle session discovery ${sessionInfo.sessionId}:`,
         err,
@@ -208,6 +216,9 @@ async function main() {
   });
 
   scanner.on("session:ended", async (sessionInfo) => {
+    // Clean up pending state in case discovery was still in-flight
+    pendingSessionIds.delete(sessionInfo.sessionId);
+
     const bridgeSession = sessions.get(sessionInfo.sessionId);
     if (!bridgeSession) return;
 
@@ -778,7 +789,7 @@ async function updateSessionEmbed(
     const starterMessage = await (thread as ThreadChannel).fetchStarterMessage();
     if (!starterMessage) return;
 
-    const projectName = path.basename(session.cwd);
+    const projectName = parseProjectName(session.cwd);
     const icon = session.hasChannelPlugin ? "📡 Connected" : "📖 Read-Only";
     const startedMs = Number(session.startedAt) || new Date(session.startedAt).getTime();
     const startedAtSec = Math.floor(startedMs / 1000);
@@ -885,6 +896,8 @@ const INTERNAL_MESSAGE_PATTERNS = [
   /\bdo not mention to user\b/i,
   /\boutput_file:\s*/i,
   /\(internal ID\b/i,
+  /^File content \(\d+ tokens?\) exceeds/i,
+  /^<system-reminder>/,
 ];
 
 /** Check whether a text block is internal metadata that should not be shown in Discord */
@@ -901,6 +914,10 @@ function wireTranscriptEvents(
   const threadId = session.forumPostId;
   // Store full tool_use blocks for result correlation
   const toolUseBlocks = new Map<string, ToolUseBlock>();
+  // Track tool IDs for chunked Read calls (offset > 0) — suppress their output
+  const suppressedToolIds = new Set<string>();
+  // Track whether we need a separator before the next tool call
+  let needsToolSeparator = false;
 
   tailer.on("entry:assistant", async (entry) => {
     try {
@@ -962,6 +979,9 @@ function wireTranscriptEvents(
         }
         // thinking blocks: not forwarded (security — model signatures)
       }
+
+      // Reset separator when assistant produces text between tool operations
+      if (textBlocks.length > 0) needsToolSeparator = false;
 
       // Send text blocks; last one gets metadata footer if no tool calls follow
       for (let i = 0; i < textBlocks.length; i++) {
@@ -1037,6 +1057,16 @@ function wireTranscriptEvents(
         toolUseBlocks.set(block.id, block);
         // Skip bridge MCP tools — they already sent to Discord directly
         if (BRIDGE_MCP_TOOLS.has(block.name)) continue;
+        // Suppress chunked Read calls (offset > 0) — only show the first chunk
+        if (block.name === "Read" && block.input.offset != null && Number(block.input.offset) > 0) {
+          suppressedToolIds.add(block.id);
+          continue;
+        }
+        // Add visual separator between tool operations
+        if (needsToolSeparator) {
+          await sender.sendAsWebhook("claude", threadId, "───");
+          needsToolSeparator = false;
+        }
         const formatted = formatToolCall(block);
         await sendFormatted(sender, threadId, formatted);
       }
@@ -1107,6 +1137,13 @@ function wireTranscriptEvents(
               continue;
             }
 
+            // Skip suppressed chunked Read results
+            if (resultBlock.tool_use_id && suppressedToolIds.has(resultBlock.tool_use_id)) {
+              suppressedToolIds.delete(resultBlock.tool_use_id);
+              toolUseBlocks.delete(resultBlock.tool_use_id);
+              continue;
+            }
+
             const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
               const messages = Array.isArray(formatted) ? formatted : [formatted];
@@ -1114,6 +1151,9 @@ function wireTranscriptEvents(
                 await sendFormatted(sender, threadId, fmtMsg);
               }
             }
+
+            // Mark that we need a separator before the next tool call
+            if (formatted) needsToolSeparator = true;
 
             // Clean up after result is processed to prevent memory leak
             if (resultBlock.tool_use_id) {
@@ -1147,9 +1187,11 @@ function wireTranscriptEvents(
 
   tailer.on("entry:custom-title", async (entry) => {
     try {
-      const customTitle = entry.customTitle;
+      const customTitle = entry.customTitle
+        ?? (entry as Record<string, unknown>).title as string | undefined
+        ?? (entry as Record<string, unknown>).summary as string | undefined;
       if (!customTitle) return;
-      const projectName = path.basename(session.cwd);
+      const projectName = parseProjectName(session.cwd);
       const newName = `${projectName} — ${customTitle}`.slice(0, 100);
       const thread = await client.channels.fetch(threadId);
       if (thread?.isThread()) {

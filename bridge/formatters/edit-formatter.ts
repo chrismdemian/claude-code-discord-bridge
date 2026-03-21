@@ -63,27 +63,21 @@ export function formatEditResult(
 function formatDiffOutput(
   filePath: string,
   diffText: string,
-  editCount: number,
+  _editCount: number,
 ): FormattedMessage {
-  const header =
-    editCount > 1
-      ? `✏️ **${truncate(filePath, 800)}** (${editCount} edits)`
-      : `✏️ **${truncate(filePath, 800)}**`;
-
   const escaped = escapeTicks(diffText);
   const codeBlock = `\`\`\`diff\n${escaped}\n\`\`\``;
-  const fullContent = `${header}\n${codeBlock}`;
 
   // Short/medium diffs: send as content — splitMessage handles chunking
-  if (fullContent.length <= FILE_ATTACHMENT_THRESHOLD) {
-    return { webhook: "claude", content: fullContent };
+  if (codeBlock.length <= FILE_ATTACHMENT_THRESHOLD) {
+    return { webhook: "claude", content: codeBlock };
   }
 
   // Very long diff — show first ~40 lines as preview + attach full diff
   const lines = escaped.split("\n");
   const previewLines = lines.slice(0, 40).join("\n");
   const suffix = lines.length > 40 ? `\n... +${lines.length - 40} more lines (see attached file)` : "";
-  const preview = `${header}\n\`\`\`diff\n${previewLines}${suffix}\n\`\`\``;
+  const preview = `\`\`\`diff\n${previewLines}${suffix}\n\`\`\``;
 
   const attachment = new AttachmentBuilder(Buffer.from(diffText, "utf-8"), {
     name: `${filePath.split(/[/\\]/).pop() ?? "edit"}.diff`,

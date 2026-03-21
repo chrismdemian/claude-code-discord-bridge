@@ -16,6 +16,7 @@ import {
 } from "discord.js";
 import type { DiscordConfig, WebhookRef } from "./types";
 import { buildNewPromptButton } from "./interactions/modal-handler";
+import { parseProjectName } from "./formatters/utils";
 import {
   COLORS,
   FORUM_TAGS,
@@ -305,7 +306,7 @@ export async function createForumPost(
     config.forumChannelId,
   )) as ForumChannel;
 
-  const projectName = path.basename(session.cwd);
+  const projectName = parseProjectName(session.cwd);
   const shortId = session.sessionId.slice(0, 8);
   const postName = `${projectName} — ${shortId}`.slice(0, 100);
 

@@ -83,6 +83,9 @@ export class SessionScanner extends EventEmitter<SessionScannerEvents> {
   private async handleAdd(filePath: string): Promise<void> {
     if (!filePath.endsWith(".json")) return;
 
+    // Dedup: chokidar on Windows can fire multiple add events for the same file
+    if (this.sessions.has(filePath)) return;
+
     const session = await this.parseSessionFile(filePath);
     if (!session) return;
 
@@ -109,11 +112,22 @@ export class SessionScanner extends EventEmitter<SessionScannerEvents> {
   private async handleChange(filePath: string): Promise<void> {
     if (!filePath.endsWith(".json")) return;
 
-    const session = await this.parseSessionFile(filePath);
-    if (!session) return;
+    const oldSession = this.sessions.get(filePath);
+    const newSession = await this.parseSessionFile(filePath);
+    if (!newSession) return;
 
-    this.sessions.set(filePath, session);
-    this.emit("session:updated", session);
+    this.sessions.set(filePath, newSession);
+
+    if (oldSession && oldSession.sessionId !== newSession.sessionId) {
+      // Session ID changed (e.g. /clear) — treat as end + new start
+      console.log(
+        `${LOG_PREFIX} Session replaced: ${oldSession.sessionId} → ${newSession.sessionId}`,
+      );
+      this.emit("session:ended", oldSession);
+      this.emit("session:discovered", newSession);
+    } else {
+      this.emit("session:updated", newSession);
+    }
   }
 
   /** Check all tracked sessions still have their PID files */

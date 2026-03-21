@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import type { ToolResultContent } from "../types";
 
 /** Truncate text to maxLength, appending "..." if truncated */
@@ -46,4 +47,23 @@ export function wrapCodeBlock(text: string, lang: string = ""): string {
 export function countLines(text: string): number {
   if (!text) return 0;
   return text.split("\n").length;
+}
+
+/**
+ * Extract a human-readable project name from a working directory path.
+ * Handles worktree paths like:
+ *   .../termwatch--claude-worktrees-velvety-jingling-moonbeam → termwatch/velvety-jingling-moonbeam
+ */
+export function parseProjectName(cwd: string): string {
+  const worktreeMarker = "--claude-worktrees-";
+  const idx = cwd.indexOf(worktreeMarker);
+  if (idx !== -1) {
+    const parentPath = cwd.slice(0, idx);
+    const parentName = path.basename(parentPath);
+    const worktreeName = cwd.slice(idx + worktreeMarker.length);
+    // worktreeName may contain path separators if there are subdirs — take just the name part
+    const cleanName = worktreeName.split(/[/\\]/)[0];
+    return `${parentName}/${cleanName}`;
+  }
+  return path.basename(cwd);
 }

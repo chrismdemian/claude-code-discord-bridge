@@ -1,5 +1,5 @@
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
-import { truncate, countLines } from "./utils";
+import { truncate } from "./utils";
 import { inferLanguage } from "./lang-map";
 
 export function formatWriteCall(toolUse: ToolUseBlock): FormattedMessage {
@@ -15,21 +15,14 @@ export function formatWriteResult(
   _result: ToolResultBlock,
   _session: BridgeSession,
 ): FormattedMessage | null {
-  const filePath = String(toolUse.input.file_path ?? "?");
   const content = toolUse.input.content;
+  const filePath = String(toolUse.input.file_path ?? "?");
 
-  // If no content in the input, just show the write notice
-  if (content == null) {
-    return {
-      webhook: "claude",
-      content: `📝 **${truncate(filePath, 800)}** (created)`,
-    };
-  }
+  // If no content in the input, nothing to show (call header already displayed)
+  if (content == null) return null;
 
   const fullText = String(content);
   const lang = inferLanguage(filePath);
-  const numLines = countLines(fullText);
-  const header = `📝 **${truncate(filePath, 800)}** (${numLines} lines)`;
 
   // Show first 30 lines as preview
   const lines = fullText.split("\n");
@@ -39,8 +32,7 @@ export function formatWriteResult(
   const suffix = lines.length > previewCount ? `\n... +${lines.length - previewCount} more lines` : "";
 
   const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\`${suffix}`;
-  const fullContent = `${header}\n${codeBlock}`;
 
   // splitMessage in MessageSender will handle chunking if needed
-  return { webhook: "claude", content: fullContent };
+  return { webhook: "claude", content: codeBlock };
 }

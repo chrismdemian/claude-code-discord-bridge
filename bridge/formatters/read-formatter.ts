@@ -1,7 +1,7 @@
 import { AttachmentBuilder } from "discord.js";
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
 import { MAX_CONTENT_LENGTH } from "../constants";
-import { extractResultText, truncate, countLines } from "./utils";
+import { extractResultText, truncate } from "./utils";
 import { inferLanguage } from "./lang-map";
 
 export function formatReadCall(toolUse: ToolUseBlock): FormattedMessage {
@@ -22,17 +22,14 @@ export function formatReadResult(
 
   const filePath = String(toolUse.input.file_path ?? "?");
   const lang = inferLanguage(filePath);
-  const numLines = countLines(text);
-  const header = `📖 **${truncate(filePath, 800)}** (${numLines} lines)`;
 
   // Escape triple backticks
   const escaped = text.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\``;
-  const fullContent = `${header}\n${codeBlock}`;
 
-  // Fits in one message — let splitMessage handle if borderline
-  if (fullContent.length <= MAX_CONTENT_LENGTH) {
-    return { webhook: "claude", content: fullContent };
+  // Fits in one message — no header needed (call header already shown)
+  if (codeBlock.length <= MAX_CONTENT_LENGTH) {
+    return { webhook: "claude", content: codeBlock };
   }
 
   // Too long: show first 30 + last 10 lines, attach full file
@@ -48,19 +45,17 @@ export function formatReadResult(
   if (tailCount > 0 && omitted > 0) {
     const tailLines = lines.slice(-tailCount).join("\n");
     const escapedTail = tailLines.replace(/```/g, "` ` `");
-    preview = `${header}\n\`\`\`${lang}\n${escapedHead}\n\`\`\`\n... ${omitted} lines omitted ...\n\`\`\`${lang}\n${escapedTail}\n\`\`\``;
+    preview = `\`\`\`${lang}\n${escapedHead}\n\`\`\`\n... ${omitted} lines omitted ...\n\`\`\`${lang}\n${escapedTail}\n\`\`\``;
   } else {
-    preview = `${header}\n\`\`\`${lang}\n${escapedHead}\n\`\`\``;
+    preview = `\`\`\`${lang}\n${escapedHead}\n\`\`\``;
   }
 
-  // Append note about the attached file
   preview += "\n*Full content in attached file*";
 
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: filePath.split(/[/\\]/).pop() ?? "file.txt",
   });
 
-  // splitMessage will handle splitting the preview if it exceeds Discord limit
   return {
     webhook: "claude",
     content: preview,

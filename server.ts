@@ -26,14 +26,56 @@ const server = new McpServer(
 // ── Session ID Discovery ──────────────────────────────────────────────
 
 /**
+ * Walk up the process tree to collect ancestor PIDs.
+ * Needed because `bun run start` creates an intermediate bun process,
+ * so process.ppid may not be the Claude Code PID directly.
+ */
+function getAncestorPids(): number[] {
+  const pids: number[] = [process.pid, process.ppid];
+  let current = process.ppid;
+
+  for (let i = 0; i < 5; i++) {
+    try {
+      let parentPid: number | null = null;
+
+      if (process.platform === "win32") {
+        const result = Bun.spawnSync([
+          "powershell.exe",
+          "-NoProfile",
+          "-Command",
+          `(Get-CimInstance Win32_Process -Filter 'ProcessId=${current}').ParentProcessId`,
+        ]);
+        const output = new TextDecoder().decode(result.stdout).trim();
+        if (output) parentPid = parseInt(output, 10);
+      } else {
+        // Unix: read /proc/<pid>/stat or use ps
+        const result = Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(current)]);
+        const output = new TextDecoder().decode(result.stdout).trim();
+        if (output) parentPid = parseInt(output, 10);
+      }
+
+      if (!parentPid || parentPid <= 1 || pids.includes(parentPid)) break;
+      pids.push(parentPid);
+      current = parentPid;
+    } catch {
+      break;
+    }
+  }
+
+  return pids;
+}
+
+/**
  * Scan ~/.claude/sessions/*.json to find our parent Claude Code process.
  * The session file contains { pid, sessionId, cwd, startedAt }.
- * We match on pid === process.ppid, falling back to cwd match.
+ * We match on any ancestor PID, falling back to cwd match.
  * Retries because the session file may not exist yet when the MCP server starts.
  */
 async function discoverSessionId(): Promise<string> {
   const maxAttempts = 10;
   const delayMs = 2000;
+  const ancestorPids = getAncestorPids();
+  console.error(`${PREFIX} Ancestor PIDs: ${ancestorPids.join(", ")}`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -49,16 +91,15 @@ async function discoverSessionId(): Promise<string> {
         .readdirSync(SESSIONS_DIR)
         .filter((f) => f.endsWith(".json"));
 
-      // First pass: match by parent PID
-      const ppid = process.ppid;
+      // First pass: match by ancestor PID (handles intermediate processes)
       for (const file of files) {
         try {
           const raw = JSON.parse(
             fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8"),
           );
-          if (raw.pid === ppid && raw.sessionId) {
+          if (raw.pid && ancestorPids.includes(raw.pid) && raw.sessionId) {
             console.error(
-              `${PREFIX} Discovered session via PPID match: ${raw.sessionId}`,
+              `${PREFIX} Discovered session via ancestor PID match: ${raw.sessionId} (pid=${raw.pid})`,
             );
             return raw.sessionId;
           }
@@ -90,7 +131,7 @@ async function discoverSessionId(): Promise<string> {
       }
 
       console.error(
-        `${PREFIX} No matching session found, attempt ${attempt}/${maxAttempts} (ppid=${ppid}, cwd=${cwd})`,
+        `${PREFIX} No matching session found, attempt ${attempt}/${maxAttempts} (ancestors=${ancestorPids.join(",")}, cwd=${path.resolve(process.cwd())})`,
       );
     } catch (err) {
       console.error(
