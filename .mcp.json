@@ -2,7 +2,7 @@
   "mcpServers": {
     "discord-bridge": {
       "command": "bun",
-      "args": ["run", "--cwd", "${CLAUDE_PLUGIN_ROOT}", "--shell=bun", "--silent", "start"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server.ts"],
       "env": {
         "BRIDGE_PORT": "7676",
         "PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
