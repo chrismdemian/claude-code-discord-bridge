@@ -148,40 +148,59 @@ async function discoverSessionId(): Promise<string> {
 
 // ── Bridge Registration ───────────────────────────────────────────────
 
-async function register(sessionId: string): Promise<void> {
+async function register(sessionId: string): Promise<boolean> {
   const body = {
     sessionId,
     pid: process.pid,
     cwd: process.cwd(),
   };
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    try {
-      const res = await fetch(`${BRIDGE_URL}/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        console.error(`${PREFIX} Registered with bridge: session=${sessionId}`);
-        return;
-      }
-      console.error(
-        `${PREFIX} Registration returned ${res.status}, attempt ${attempt}/5`,
-      );
-    } catch (err) {
-      console.error(
-        `${PREFIX} Registration failed, attempt ${attempt}/5:`,
-        err,
-      );
+  try {
+    const res = await fetch(`${BRIDGE_URL}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      console.error(`${PREFIX} Registered with bridge: session=${sessionId}`);
+      return true;
     }
-
-    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-    const delay = Math.pow(2, attempt - 1) * 1000;
-    await Bun.sleep(delay);
+    console.error(`${PREFIX} Registration returned ${res.status}`);
+  } catch (err) {
+    console.error(`${PREFIX} Registration failed:`, err);
   }
+  return false;
+}
 
-  console.error(`${PREFIX} Failed to register after 5 attempts — running without bridge`);
+/**
+ * Persistently maintain the bridge connection. Re-registers periodically
+ * to survive bridge restarts, and restarts polling if it dies.
+ */
+async function maintainConnection(sessionId: string): Promise<void> {
+  const HEARTBEAT_INTERVAL = 30_000; // Re-register every 30s
+  let polling = false;
+  let wasConnected = false;
+
+  while (true) {
+    const ok = await register(sessionId);
+    if (ok && !polling) {
+      if (!wasConnected) {
+        console.error(`${PREFIX} Bridge connection established`);
+        wasConnected = true;
+      }
+      polling = true;
+      // Start polling in background; restart on failure
+      pollForMessages(sessionId).then(() => {
+        console.error(`${PREFIX} Poll loop exited — will restart on next heartbeat`);
+        polling = false;
+      });
+    } else if (!ok && wasConnected) {
+      console.error(`${PREFIX} Bridge connection lost — will keep retrying`);
+      wasConnected = false;
+    }
+    await Bun.sleep(HEARTBEAT_INTERVAL);
+  }
 }
 
 async function unregister(sessionId: string): Promise<void> {
@@ -238,11 +257,9 @@ async function pollForMessages(sessionId: string): Promise<void> {
       }
 
       if (res.status === 404) {
-        // Not registered — re-register and retry
-        console.error(`${PREFIX} Poll returned 404 — re-registering`);
-        await register(sessionId);
-        consecutiveErrors++;
-        continue;
+        // Not registered — exit poll loop so maintainConnection re-registers
+        console.error(`${PREFIX} Poll returned 404 — not registered, exiting poll`);
+        return;
       }
 
       // Unexpected status
@@ -359,13 +376,10 @@ async function main() {
     return;
   }
 
-  // 3. Register with bridge
-  await register(currentSessionId);
-
-  // 4. Start polling for Discord messages (non-blocking)
-  pollForMessages(currentSessionId);
-
   console.error(`${PREFIX} MCP channel server ready (session=${currentSessionId})`);
+
+  // 3. Maintain bridge connection (register + poll, survives bridge restarts)
+  maintainConnection(currentSessionId);
 }
 
 // Graceful shutdown
