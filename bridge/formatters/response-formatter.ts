@@ -47,7 +47,7 @@ export function formatAssistantText(
 export function formatUserPrompt(text: string): FormattedMessage {
   return {
     webhook: "claude",
-    content: `**You:** ${text}`,
+    content: text.split('\n').map(line => `> ${line}`).join('\n'),
   };
 }
 
