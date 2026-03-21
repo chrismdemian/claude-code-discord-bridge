@@ -34,6 +34,7 @@ export function findTranscriptPath(cwd: string, sessionId: string): string {
 
 export class SessionScanner extends EventEmitter<SessionScannerEvents> {
   private watcher: ReturnType<typeof chokidar.watch> | null = null;
+  private validateInterval: ReturnType<typeof setInterval> | null = null;
   private sessions = new Map<string, SessionInfo>();
 
   /** Start watching the sessions directory */
@@ -56,11 +57,18 @@ export class SessionScanner extends EventEmitter<SessionScannerEvents> {
       console.error(`${LOG_PREFIX} Session scanner error:`, err);
     });
 
+    // Periodic validation to catch sessions that disappeared without triggering unlink
+    this.validateInterval = setInterval(() => this.validateSessions(), 30_000);
+
     console.log(`${LOG_PREFIX} Session scanner watching: ${SESSIONS_DIR}`);
   }
 
   /** Stop watching */
   async stop(): Promise<void> {
+    if (this.validateInterval) {
+      clearInterval(this.validateInterval);
+      this.validateInterval = null;
+    }
     if (this.watcher) {
       await this.watcher.close();
       this.watcher = null;
@@ -106,6 +114,19 @@ export class SessionScanner extends EventEmitter<SessionScannerEvents> {
 
     this.sessions.set(filePath, session);
     this.emit("session:updated", session);
+  }
+
+  /** Check all tracked sessions still have their PID files */
+  private validateSessions(): void {
+    for (const [filePath, session] of this.sessions) {
+      if (!fs.existsSync(filePath)) {
+        this.sessions.delete(filePath);
+        console.log(
+          `${LOG_PREFIX} Session file disappeared (periodic check): PID=${session.pid}, ID=${session.sessionId}`,
+        );
+        this.emit("session:ended", session);
+      }
+    }
   }
 
   private async parseSessionFile(

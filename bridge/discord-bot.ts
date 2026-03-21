@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as fs from "node:fs";
 import {
   Client,
   Events,
@@ -23,6 +24,7 @@ import {
   DASHBOARD_CHANNEL_NAME,
   ALERTS_CHANNEL_NAME,
   LOG_PREFIX,
+  SESSIONS_DIR,
 } from "./constants";
 
 /** Create a new Discord client with required intents */
@@ -402,4 +404,86 @@ export function setBotPresence(client: Client, activeCount: number): void {
     ],
     status: activeCount > 0 ? "online" : "idle",
   });
+}
+
+/** Clean up orphaned forum posts from previous bridge runs.
+ *  Finds posts tagged Active/Working with no matching running session and archives them. */
+export async function cleanupOrphanedPosts(
+  client: Client,
+  config: DiscordConfig,
+): Promise<number> {
+  try {
+    const forumChannel = (await client.channels.fetch(
+      config.forumChannelId,
+    )) as ForumChannel;
+    const tagMap = buildTagMap(forumChannel);
+    const activeTagIds = new Set(
+      [tagMap.ACTIVE, tagMap.WORKING].filter(Boolean),
+    );
+    if (activeTagIds.size === 0) return 0;
+
+    // Collect session IDs from currently running sessions
+    const runningSessionIds = new Set<string>();
+    try {
+      const entries = fs.readdirSync(SESSIONS_DIR);
+      for (const entry of entries) {
+        if (!entry.endsWith(".json")) continue;
+        try {
+          const filePath = path.join(SESSIONS_DIR, entry);
+          const raw = await Bun.file(filePath).json();
+          if (raw.sessionId) runningSessionIds.add(raw.sessionId);
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    } catch {
+      // Sessions dir may not exist yet — all posts are orphaned
+    }
+
+    // Fetch all active (non-archived) threads
+    const { threads } = await forumChannel.threads.fetchActive();
+
+    let cleaned = 0;
+    for (const thread of threads.values()) {
+      const hasActiveTag = thread.appliedTags.some((t) => activeTagIds.has(t));
+      if (!hasActiveTag) continue;
+
+      // Extract session ID prefix from the starter embed
+      const sessionIdPrefix = await extractSessionIdFromEmbed(
+        thread as ThreadChannel,
+      );
+      if (!sessionIdPrefix) continue;
+
+      // Check if any running session matches this prefix
+      const isRunning = [...runningSessionIds].some((id) =>
+        id.startsWith(sessionIdPrefix),
+      );
+      if (!isRunning) {
+        await archiveForumPost(client, config, thread.id);
+        cleaned++;
+        // Brief pause between archival calls to avoid rate limit bursts
+        if (cleaned < threads.size) await Bun.sleep(1000);
+      }
+    }
+
+    return cleaned;
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Failed to cleanup orphaned posts:`, err);
+    return 0;
+  }
+}
+
+/** Extract session ID prefix from a thread's starter message embed */
+async function extractSessionIdFromEmbed(
+  thread: ThreadChannel,
+): Promise<string | null> {
+  try {
+    const starterMessage = await thread.fetchStarterMessage();
+    if (!starterMessage?.embeds?.length) return null;
+    const embed = starterMessage.embeds[0];
+    const sessionField = embed.fields?.find((f) => f.name === "Session");
+    return sessionField?.value ?? null;
+  } catch {
+    return null;
+  }
 }

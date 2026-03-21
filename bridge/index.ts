@@ -9,6 +9,7 @@ import {
   createForumPost,
   archiveForumPost,
   setBotPresence,
+  cleanupOrphanedPosts,
 } from "./discord-bot";
 import { SessionScanner } from "./session-scanner";
 import { TranscriptTailer } from "./transcript-tailer";
@@ -116,6 +117,12 @@ async function main() {
 
   // 7. Register slash commands
   await registerCommands(config.token, client.user!.id, config.guildId);
+
+  // 7b. Cleanup orphaned forum posts from previous bridge runs
+  const cleanedCount = await cleanupOrphanedPosts(client, discordConfig);
+  if (cleanedCount > 0) {
+    console.log(`${LOG_PREFIX} Cleaned up ${cleanedCount} orphaned forum post(s)`);
+  }
 
   // 8. Start session scanner
   const scanner = new SessionScanner();
