@@ -90,7 +90,7 @@ async function main() {
     console.log(`${LOG_PREFIX} Using saved Discord config`);
     discordConfig = config.discord;
   } else {
-    discordConfig = await setupServer(client, config.guildId);
+    discordConfig = await setupServer(client, config.guildId, client.user!.username);
     await saveDiscordConfig(discordConfig);
   }
 

@@ -27,7 +27,7 @@ import {
 } from "./formatters/web-formatter";
 
 // ── Webhook routing ──────────────────────────────────────────────────────
-// All messages go through the single "Claude" webhook. Differentiation
+// All messages go through a single webhook (named after the bot). Differentiation
 // happens via emoji prefixes and embed colors in the formatters.
 
 type WebhookName = keyof DiscordConfig["webhooks"];

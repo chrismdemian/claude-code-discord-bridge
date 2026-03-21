@@ -121,6 +121,7 @@ export function validateIntents(client: Client): void {
 export async function setupServer(
   client: Client,
   guildId: string,
+  botUsername: string,
 ): Promise<DiscordConfig> {
   if (!/^\d{17,20}$/.test(guildId)) {
     throw new Error(
@@ -231,7 +232,7 @@ export async function setupServer(
       });
     })());
 
-  // --- Single "Claude" webhook on forum channel ---
+  // --- Webhook on forum channel (named after the bot) ---
   const existingWebhooks = await forumChannel.fetchWebhooks();
 
   // Clean up legacy per-tool webhooks from previous versions
@@ -243,15 +244,22 @@ export async function setupServer(
     }
   }
 
-  let claudeWebhook = existingWebhooks.find((w) => w.name === "Claude");
+  let claudeWebhook = existingWebhooks.find((w) => w.name === botUsername);
   if (!claudeWebhook) {
-    console.log(`${LOG_PREFIX} Creating webhook: Claude`);
-    claudeWebhook = await forumChannel.createWebhook({ name: "Claude" });
+    // Also check for the old hardcoded "Claude" name and rename it
+    const legacyClaude = existingWebhooks.find((w) => w.name === "Claude");
+    if (legacyClaude) {
+      console.log(`${LOG_PREFIX} Renaming webhook "Claude" → "${botUsername}"`);
+      claudeWebhook = await legacyClaude.edit({ name: botUsername });
+    } else {
+      console.log(`${LOG_PREFIX} Creating webhook: ${botUsername}`);
+      claudeWebhook = await forumChannel.createWebhook({ name: botUsername });
+    }
   }
   if (!claudeWebhook.token) {
-    console.warn(`${LOG_PREFIX} Webhook "Claude" has no token — recreating`);
+    console.warn(`${LOG_PREFIX} Webhook "${botUsername}" has no token — recreating`);
     await claudeWebhook.delete();
-    claudeWebhook = await forumChannel.createWebhook({ name: "Claude" });
+    claudeWebhook = await forumChannel.createWebhook({ name: botUsername });
   }
 
   const discordConfig: DiscordConfig = {

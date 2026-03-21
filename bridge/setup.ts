@@ -161,7 +161,7 @@ async function main() {
 
     // ── Step 5: Server setup ────────────────────────────────────────
     console.log(`${PREFIX} Setting up Discord server structure...`);
-    const discordConfig = await setupServer(client, guildId);
+    const discordConfig = await setupServer(client, guildId, client.user!.username);
     await saveDiscordConfig(discordConfig);
 
     // ── Step 6: Access control ──────────────────────────────────────
@@ -245,7 +245,7 @@ async function main() {
     console.log(`  Forum:      #sessions`);
     console.log(`  Dashboard:  #dashboard`);
     console.log(`  Alerts:     #alerts`);
-    console.log(`  Webhooks:   6 (Claude, Terminal, Editor, Playwright, Git, System)`);
+    console.log(`  Webhook:    ${client.user!.username}`);
     console.log("");
     console.log(`  Config:     ${path.join(dataPath, "discord.json")}`);
     console.log(`  Env:        ${envPath}`);

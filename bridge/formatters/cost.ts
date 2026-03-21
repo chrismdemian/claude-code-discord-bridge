@@ -43,7 +43,13 @@ export function calculateCost(usage: TokenUsage, model: string): number {
   ) / 1_000_000;
 }
 
-/** Shorten model name for display: "claude-opus-4-6" → "opus-4-6" */
+/** Format model name for display: "claude-opus-4-6" → "Opus 4.6" */
 export function formatModelName(model: string): string {
-  return model.replace(/^claude-/, "");
+  const stripped = model.replace(/^claude-/, "");
+  // Split into name part and version part: "opus-4-6" → ["opus", "4-6"]
+  const match = stripped.match(/^([a-z]+)-(.+)$/);
+  if (!match) return stripped;
+  const name = match[1].charAt(0).toUpperCase() + match[1].slice(1);
+  const version = match[2].replace(/-/g, ".");
+  return `${name} ${version}`;
 }
