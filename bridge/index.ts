@@ -238,6 +238,7 @@ async function main() {
   // 9. Start MCP relay HTTP server
   const httpServer = Bun.serve({
     port: config.bridgePort,
+    idleTimeout: 120, // Long-poll requests need extended timeout
     async fetch(req) {
       const url = new URL(req.url);
 
