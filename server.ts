@@ -6,6 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 const PREFIX = "[discord-bridge]";
+console.error(`${PREFIX} MCP server starting... (pid=${process.pid}, ppid=${process.ppid})`);
+
 const BRIDGE_URL = `http://localhost:${process.env.BRIDGE_PORT || 7676}`;
 const SESSIONS_DIR = path.join(os.homedir(), ".claude", "sessions");
 
@@ -34,7 +36,7 @@ function getAncestorPids(): number[] {
   const pids: number[] = [process.pid, process.ppid];
   let current = process.ppid;
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 10; i++) {
     try {
       let parentPid: number | null = null;
 
@@ -66,16 +68,40 @@ function getAncestorPids(): number[] {
 }
 
 /**
+ * Resolve the project CWD for matching against session files.
+ * process.cwd() is unreliable because .mcp.json uses --cwd to set it to
+ * the plugin installation directory. Try env vars that reflect the real project dir.
+ */
+function getProjectCwd(): string | null {
+  // CLAUDE_PROJECT_DIR — may be set by future Claude Code versions
+  const projectDir = process.env.CLAUDE_PROJECT_DIR;
+  if (projectDir) return path.resolve(projectDir);
+
+  // PWD — set by Claude Code to the actual project directory, survives --cwd
+  const pwd = process.env.PWD;
+  if (pwd) return path.resolve(pwd);
+
+  return null;
+}
+
+/**
  * Scan ~/.claude/sessions/*.json to find our parent Claude Code process.
  * The session file contains { pid, sessionId, cwd, startedAt }.
- * We match on any ancestor PID, falling back to cwd match.
+ *
+ * Match strategies (in order):
+ * 1. Ancestor PID match — walk the process tree
+ * 2. CWD match — compare project dir from env vars against session cwd
+ * 3. Most recent session — fallback to latest startedAt
+ *
  * Retries because the session file may not exist yet when the MCP server starts.
  */
 async function discoverSessionId(): Promise<string> {
   const maxAttempts = 10;
   const delayMs = 2000;
   const ancestorPids = getAncestorPids();
+  const projectCwd = getProjectCwd();
   console.error(`${PREFIX} Ancestor PIDs: ${ancestorPids.join(", ")}`);
+  console.error(`${PREFIX} Project CWD: ${projectCwd ?? "(not available)"} (process.cwd=${process.cwd()})`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -91,47 +117,61 @@ async function discoverSessionId(): Promise<string> {
         .readdirSync(SESSIONS_DIR)
         .filter((f) => f.endsWith(".json"));
 
-      // First pass: match by ancestor PID (handles intermediate processes)
+      // Parse all session files once
+      const sessions: Array<{ sessionId: string; pid: number; cwd: string; startedAt: number }> = [];
       for (const file of files) {
         try {
           const raw = JSON.parse(
             fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8"),
           );
-          if (raw.pid && ancestorPids.includes(raw.pid) && raw.sessionId) {
-            console.error(
-              `${PREFIX} Discovered session via ancestor PID match: ${raw.sessionId} (pid=${raw.pid})`,
-            );
-            return raw.sessionId;
-          }
+          if (raw.sessionId) sessions.push(raw);
         } catch {
           // Skip unreadable files
         }
       }
 
-      // Second pass: match by cwd (normalize for Windows case-insensitivity)
-      const cwd = path.resolve(process.cwd()).toLowerCase();
-      for (const file of files) {
-        try {
-          const raw = JSON.parse(
-            fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8"),
+      // Strategy 1: match by ancestor PID (handles intermediate processes)
+      for (const session of sessions) {
+        if (session.pid && ancestorPids.includes(session.pid)) {
+          console.error(
+            `${PREFIX} Discovered session via ancestor PID match: ${session.sessionId} (pid=${session.pid})`,
           );
+          return session.sessionId;
+        }
+      }
+
+      // Strategy 2: match by CWD using resolved project directory
+      if (projectCwd) {
+        const normalizedCwd = projectCwd.toLowerCase();
+        for (const session of sessions) {
           if (
-            raw.cwd &&
-            path.resolve(raw.cwd).toLowerCase() === cwd &&
-            raw.sessionId
+            session.cwd &&
+            path.resolve(session.cwd).toLowerCase() === normalizedCwd
           ) {
             console.error(
-              `${PREFIX} Discovered session via CWD match: ${raw.sessionId}`,
+              `${PREFIX} Discovered session via CWD match: ${session.sessionId} (cwd=${session.cwd})`,
             );
-            return raw.sessionId;
+            return session.sessionId;
           }
-        } catch {
-          // Skip unreadable files
+        }
+      }
+
+      // Strategy 3: pick the most recently created session (last resort)
+      // Only use this after a few attempts to give PID/CWD matching a fair chance
+      if (attempt >= 3 && sessions.length > 0) {
+        const newest = sessions.reduce((a, b) =>
+          (b.startedAt || 0) > (a.startedAt || 0) ? b : a,
+        );
+        if (newest.sessionId) {
+          console.error(
+            `${PREFIX} Discovered session via most-recent fallback: ${newest.sessionId} (startedAt=${newest.startedAt}, pid=${newest.pid})`,
+          );
+          return newest.sessionId;
         }
       }
 
       console.error(
-        `${PREFIX} No matching session found, attempt ${attempt}/${maxAttempts} (ancestors=${ancestorPids.join(",")}, cwd=${path.resolve(process.cwd())})`,
+        `${PREFIX} No matching session found, attempt ${attempt}/${maxAttempts} (ancestors=${ancestorPids.join(",")}, projectCwd=${projectCwd})`,
       );
     } catch (err) {
       console.error(
@@ -363,7 +403,9 @@ let currentSessionId: string | null = null;
 
 async function main() {
   // 1. Connect MCP transport
+  console.error(`${PREFIX} Creating StdioServerTransport...`);
   const transport = new StdioServerTransport();
+  console.error(`${PREFIX} Transport created, calling server.connect()...`);
   await server.connect(transport);
   console.error(`${PREFIX} MCP channel server connected`);
 
