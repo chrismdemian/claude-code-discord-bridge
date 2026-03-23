@@ -47,23 +47,20 @@ function formatSearchOutput(_header: string, text: string): FormattedMessage {
   const escaped = text.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`\n${escaped}\n\`\`\``;
 
-  // Short/medium output: send as content — splitMessage handles chunking
+  // Short output: send inline
   if (codeBlock.length <= FILE_ATTACHMENT_THRESHOLD) {
     return { webhook: "claude", content: codeBlock };
   }
 
-  // Very long — show first ~40 lines as preview + attach full results
-  const lines = escaped.split("\n");
-  const previewLines = lines.slice(0, 40).join("\n");
-  const suffix = lines.length > 40 ? `\n... +${lines.length - 40} more lines (see attached file)` : "";
-  const preview = `\`\`\`\n${previewLines}${suffix}\n\`\`\``;
+  // Long output: just show count + attach full results (no preview dump)
+  const lineCount = text.split("\n").filter(l => l.trim()).length;
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: "results.txt",
   });
 
   return {
     webhook: "claude",
-    content: preview,
+    content: `*${lineCount} results — see attached*`,
     files: [attachment],
   };
 }

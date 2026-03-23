@@ -547,11 +547,14 @@ export class HookReceiver {
       return { ok: true };
     }
 
-    await this.sender.sendAsWebhook(
-      "claude",
-      session.forumPostId,
-      `⚙️ Config changed: **${key}**`,
-    );
+    // Only show config changes with known keys — "unknown" is noise
+    if (key !== "unknown") {
+      await this.sender.sendAsWebhook(
+        "claude",
+        session.forumPostId,
+        `⚙️ Config changed: **${key}**`,
+      );
+    }
     return { ok: true };
   }
 
