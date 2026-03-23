@@ -28,7 +28,7 @@ async function executePlan(
   const channelSent = relay.enqueueMessage(session.sessionId, option, interaction.user.id);
 
   // Also inject directly into the terminal for blocking prompts
-  sendTerminalInput(session.pid, `${option}\n`).catch(() => {
+  sendTerminalInput(session.pid, `${option}\n`, session.cwd).catch(() => {
     // Best-effort — channel notification may handle it
   });
 
