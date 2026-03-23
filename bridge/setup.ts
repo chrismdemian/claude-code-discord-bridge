@@ -9,6 +9,7 @@
  */
 
 import * as path from "node:path";
+import * as os from "node:os";
 import { config as dotenvConfig } from "dotenv";
 import { EmbedBuilder, type TextChannel } from "discord.js";
 
@@ -234,7 +235,79 @@ async function main() {
       }
     }
 
-    // ── Step 9: Summary ─────────────────────────────────────────────
+    // ── Step 9: Shell alias ─────────────────────────────────────────
+    const channelsFlag = "--dangerously-load-development-channels plugin:discord-bridge@claude-code-discord-bridge";
+    const isWindows = process.platform === "win32";
+
+    console.log("");
+    console.log(
+      `  To send messages from Discord into Claude Code, sessions must\n` +
+        `  be started with the --channels flag (required during the\n` +
+        `  channels research preview). A shell alias makes this easy.`,
+    );
+    console.log("");
+
+    const rl = await import("node:readline");
+    const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      iface.question("  Add a 'claude-dc' shell alias? (Y/n) ", resolve);
+    });
+    iface.close();
+
+    const shouldAdd = !answer.trim() || answer.trim().toLowerCase().startsWith("y");
+
+    if (shouldAdd) {
+      try {
+        if (isWindows) {
+          // PowerShell profile
+          const profileDir = path.join(
+            process.env.USERPROFILE || os.homedir(),
+            "Documents",
+            "PowerShell",
+          );
+          const profilePath = path.join(profileDir, "Microsoft.PowerShell_profile.ps1");
+          const aliasLine = `\nfunction claude-dc { claude ${channelsFlag} @args }\n`;
+
+          const fs = await import("node:fs");
+          fs.mkdirSync(profileDir, { recursive: true });
+          const existing = await Bun.file(profilePath).text().catch(() => "");
+          if (existing.includes("claude-dc")) {
+            console.log(`  Alias already exists in ${profilePath}`);
+          } else {
+            await Bun.write(profilePath, existing.trimEnd() + "\n" + aliasLine);
+            console.log(`  ✅ Alias added to ${profilePath}`);
+            console.log(`     Run: . $PROFILE   (or restart your terminal)`);
+          }
+        } else {
+          // Bash/Zsh
+          const shell = process.env.SHELL || "/bin/bash";
+          const rcFile = shell.includes("zsh") ? ".zshrc" : ".bashrc";
+          const rcPath = path.join(os.homedir(), rcFile);
+          const aliasLine = `\nalias claude-dc='claude ${channelsFlag}'\n`;
+
+          const existing = await Bun.file(rcPath).text().catch(() => "");
+          if (existing.includes("claude-dc")) {
+            console.log(`  Alias already exists in ${rcPath}`);
+          } else {
+            await Bun.write(rcPath, existing.trimEnd() + "\n" + aliasLine);
+            console.log(`  ✅ Alias added to ${rcPath}`);
+            console.log(`     Run: source ~/${rcFile}   (or restart your terminal)`);
+          }
+        }
+      } catch (err) {
+        console.warn(`  Could not add alias automatically. Add it manually:`);
+        if (isWindows) {
+          console.warn(`    function claude-dc { claude ${channelsFlag} @args }`);
+        } else {
+          console.warn(`    alias claude-dc='claude ${channelsFlag}'`);
+        }
+      }
+    } else {
+      console.log(`  Skipped. To enable bidirectional messaging, start Claude with:`);
+      console.log(`    claude ${channelsFlag}`);
+    }
+
+    // ── Step 10: Summary ────────────────────────────────────────────
     console.log("");
     console.log("═══════════════════════════════════════════════════════");
     console.log("  Discord Bridge Setup Complete!");
@@ -258,6 +331,7 @@ async function main() {
     console.log("     npx pm2 start bridge/index.ts --name discord-bridge --interpreter bun");
     console.log("     npx pm2 save && npx pm2 startup");
     console.log("  3. Verify: curl http://localhost:7676/health");
+    console.log("  4. Start Claude Code with:  claude-dc");
     console.log("");
     console.log("═══════════════════════════════════════════════════════");
 

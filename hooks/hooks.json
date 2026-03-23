@@ -2,128 +2,200 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/session-start",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/session-start",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "SessionEnd": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/session-end",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/session-end",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PermissionRequest": [
       {
-        "type": "command",
-        "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/permission-request.ts",
-        "timeout": 600
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/permission-request.ts",
+            "timeout": 600
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/stop",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/stop",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "StopFailure": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/stop-failure",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/stop-failure",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/post-tool-use",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/post-tool-use",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/post-tool-use-failure",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/post-tool-use-failure",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PreCompact": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/pre-compact",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/pre-compact",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostCompact": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/post-compact",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/post-compact",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "SubagentStart": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/subagent-start",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/subagent-start",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "SubagentStop": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/subagent-stop",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/subagent-stop",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Notification": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/notification",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/notification",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/user-prompt-submit",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/user-prompt-submit",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "TaskCompleted": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/task-completed",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/task-completed",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "TeammateIdle": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/teammate-idle",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/teammate-idle",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "ConfigChange": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/config-change",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/config-change",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "WorktreeCreate": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/worktree-create",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/worktree-create",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "WorktreeRemove": [
       {
-        "type": "http",
-        "url": "http://localhost:7676/hooks/worktree-remove",
-        "timeout": 30
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:7676/hooks/worktree-remove",
+            "timeout": 30
+          }
+        ]
       }
     ]
   }

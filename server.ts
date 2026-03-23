@@ -1,9 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 const PREFIX = "[discord-bridge]";
 console.error(`${PREFIX} MCP server starting... (pid=${process.pid}, ppid=${process.ppid})`);
@@ -11,17 +14,20 @@ console.error(`${PREFIX} MCP server starting... (pid=${process.pid}, ppid=${proc
 const BRIDGE_URL = `http://localhost:${process.env.BRIDGE_PORT || 7676}`;
 const SESSIONS_DIR = path.join(os.homedir(), ".claude", "sessions");
 
-const server = new McpServer(
-  {
-    name: "discord-bridge",
-    version: "0.1.0",
-  },
+const mcp = new Server(
+  { name: "discord-bridge", version: "0.1.0" },
   {
     capabilities: {
-      experimental: {
-        "claude/channel": {},
-      },
+      tools: {},
+      experimental: { "claude/channel": {} },
     },
+    instructions: [
+      "Messages from Discord arrive as <channel source=\"discord-bridge\" ...>.",
+      "These are real messages from a human on their phone via Discord.",
+      "Treat them as user input and respond normally.",
+      "Use the send_to_discord tool to send files or images to the Discord session.",
+      "Use the react_in_discord tool to react with emoji.",
+    ].join("\n"),
   },
 );
 
@@ -278,14 +284,19 @@ async function pollForMessages(sessionId: string): Promise<void> {
           message: string;
           senderId: string;
         };
+        console.error(`${PREFIX} Received message from Discord: "${msg.message.slice(0, 50)}"`);
         // Inject into Claude Code via MCP channel notification
-        await server.server.notification({
+        mcp.notification({
           method: "notifications/claude/channel",
           params: {
-            channel: "discord-bridge",
-            message: msg.message,
-            metadata: { senderId: msg.senderId, source: "discord" },
+            content: msg.message,
+            meta: {
+              sender_id: msg.senderId,
+              source: "discord",
+            },
           },
+        }).catch((err) => {
+          console.error(`${PREFIX} Channel notification FAILED:`, err);
         });
         continue; // immediately poll again
       }
@@ -331,18 +342,53 @@ async function pollForMessages(sessionId: string): Promise<void> {
 
 // ── MCP Tools ────────────────────────────────────────────────────────
 
-// @ts-expect-error - zod + MCP SDK type depth issue (runtime works fine)
-server.tool(
-  "send_to_discord",
-  "Send files or images to the current Discord session. Use this to forward screenshots, generated images, or other files the user should see.",
-  {
-    files: z.array(z.string()).describe("Absolute file paths to attach (max 10 files, 25 MB each)"),
-    caption: z.string().optional().describe("Optional short caption"),
-  },
-  async ({ files, caption }) => {
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "send_to_discord",
+      description: "Send files or images to the current Discord session. Use this to forward screenshots, generated images, or other files the user should see.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description: "Absolute file paths to attach (max 10 files, 25 MB each)",
+          },
+          caption: {
+            type: "string",
+            description: "Optional short caption",
+          },
+        },
+        required: ["files"],
+      },
+    },
+    {
+      name: "react_in_discord",
+      description: "React to the latest message in the current Discord session with an emoji.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          emoji: {
+            type: "string",
+            description: "Unicode emoji (e.g. '\u2705', '\ud83d\udc4d', '\ud83c\udf89')",
+          },
+        },
+        required: ["emoji"],
+      },
+    },
+  ],
+}));
+
+mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const { name, arguments: args } = req.params;
+
+  if (name === "send_to_discord") {
     if (!currentSessionId) {
       return { content: [{ type: "text", text: "Not connected to bridge" }], isError: true };
     }
+    const files = (args?.files as string[]) ?? [];
+    const caption = args?.caption as string | undefined;
 
     try {
       const res = await fetch(`${BRIDGE_URL}/api/send-file`, {
@@ -357,25 +403,19 @@ server.tool(
         return { content: [{ type: "text", text: `Failed: ${err}` }], isError: true };
       }
 
-      const result = await res.json() as { messageIds?: string[]; filesSent?: number };
+      const result = (await res.json()) as { messageIds?: string[]; filesSent?: number };
       const count = result.filesSent ?? result.messageIds?.length ?? 0;
       return { content: [{ type: "text", text: `Sent ${count} of ${files.length} file(s) to Discord` }] };
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
-  },
-);
+  }
 
-server.tool(
-  "react_in_discord",
-  "React to the latest message in the current Discord session with an emoji.",
-  {
-    emoji: z.string().describe("Unicode emoji (e.g. '✅', '👍', '🎉')"),
-  },
-  async ({ emoji }) => {
+  if (name === "react_in_discord") {
     if (!currentSessionId) {
       return { content: [{ type: "text", text: "Not connected to bridge" }], isError: true };
     }
+    const emoji = (args?.emoji as string) ?? "";
 
     try {
       const res = await fetch(`${BRIDGE_URL}/api/react`, {
@@ -394,8 +434,10 @@ server.tool(
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
-  },
-);
+  }
+
+  return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
+});
 
 // ── Main ──────────────────────────────────────────────────────────────
 
@@ -405,8 +447,8 @@ async function main() {
   // 1. Connect MCP transport
   console.error(`${PREFIX} Creating StdioServerTransport...`);
   const transport = new StdioServerTransport();
-  console.error(`${PREFIX} Transport created, calling server.connect()...`);
-  await server.connect(transport);
+  console.error(`${PREFIX} Transport created, calling mcp.connect()...`);
+  await mcp.connect(transport);
   console.error(`${PREFIX} MCP channel server connected`);
 
   // 2. Discover our session ID
