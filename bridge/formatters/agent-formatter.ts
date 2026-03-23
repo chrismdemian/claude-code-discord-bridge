@@ -55,21 +55,24 @@ export function formatAgentResult(
     text = usage.cleaned;
   }
 
-  // Build compact output: summary line + truncated content in code block (monospace handles tables)
-  const summaryLine = usage ? `-# ${usage.summary}` : "";
+  // Strip internal metadata lines (agentId, SendMessage references, etc.)
+  text = text
+    .replace(/^agentId:.*$/gm, "")
+    .replace(/\(use SendMessage.*?\)/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-  // Truncate long results before wrapping
-  const maxLen = 1500;
-  if (text.length > maxLen) {
-    text = text.slice(0, maxLen) + "\n... (truncated)";
+  // Just show the summary line — agent output is too verbose for Discord
+  if (usage) {
+    return {
+      webhook: "claude",
+      content: `-# 🤖 ${usage.summary}`,
+    };
   }
 
-  const content = summaryLine
-    ? `${summaryLine}\n${wrapCodeBlock(text)}`
-    : wrapCodeBlock(text);
-
+  // Fallback: truncate heavily
   return {
     webhook: "claude",
-    content,
+    content: truncate(text, 500),
   };
 }

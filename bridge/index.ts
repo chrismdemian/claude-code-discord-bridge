@@ -932,6 +932,8 @@ const INTERNAL_MESSAGE_PATTERNS = [
   /^Command running in background/i,
   /^Read the output file to retrieve/i,
   /^Shell cwd was reset to/i,
+  /^<tool_use_error\b/,
+  /<tool_use_error>.*<\/tool_use_error>/,
 ];
 
 /** Check whether a text block is internal metadata that should not be shown in Discord */
@@ -1104,12 +1106,7 @@ function wireTranscriptEvents(
           suppressedToolIds.add(block.id);
           continue;
         }
-        // Add visual separator between tool operations (only when previous tool had output)
-        if (needsToolSeparator && lastToolResultHadOutput) {
-          await sender.sendAsWebhook("claude", threadId, "───");
-          needsToolSeparator = false;
-          lastToolResultHadOutput = false;
-        }
+        // No separators — keep the flow clean like Claude Code's terminal
         const formatted = formatToolCall(block);
         await sendFormatted(sender, threadId, formatted);
       }
@@ -1198,6 +1195,15 @@ function wireTranscriptEvents(
             if (resultBlock.tool_use_id && suppressedToolIds.has(resultBlock.tool_use_id)) {
               suppressedToolIds.delete(resultBlock.tool_use_id);
               toolUseBlocks.delete(resultBlock.tool_use_id);
+              continue;
+            }
+
+            // Skip cancelled parallel tool results — just noise
+            const resultText = typeof resultBlock.content === "string"
+              ? resultBlock.content
+              : "";
+            if (resultText.includes("<tool_use_error>") && resultText.includes("Cancelled")) {
+              if (resultBlock.tool_use_id) toolUseBlocks.delete(resultBlock.tool_use_id);
               continue;
             }
 

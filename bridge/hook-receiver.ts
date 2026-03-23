@@ -131,17 +131,18 @@ export class HookReceiver {
         // No-op: transcript tailing handles tool output display
         return { ok: true };
       case "PostToolUseFailure":
-        return this.handlePostToolUseFailure(
-          payload as PostToolUseFailureHook,
-        );
+        // No-op: transcript tailer's formatters already show errors
+        return { ok: true };
       case "PreCompact":
         return this.handlePreCompact(payload);
       case "PostCompact":
         return this.handlePostCompact(payload as PostCompactHook);
       case "SubagentStart":
-        return this.handleSubagentStart(payload as SubagentStartHook);
+        // No-op: transcript tailer's Agent tool formatter already shows the header
+        return { ok: true };
       case "SubagentStop":
-        return this.handleSubagentStop(payload as SubagentStopHook);
+        // No-op: transcript tailer's Agent result formatter already shows completion
+        return { ok: true };
       case "Notification":
         return this.handleNotification(payload as NotificationHook);
       case "UserPromptSubmit":
@@ -462,6 +463,10 @@ export class HookReceiver {
 
     const notifType = payload.notification_type ?? "notification";
     const message = payload.message ?? "";
+
+    // Suppress idle_prompt in Discord — users can see Claude is idle from the thread
+    if (notifType === "idle_prompt") return { ok: true };
+
     const text = `🔔 **${notifType}**: ${truncate(message, 1800)}`;
 
     await this.sender.sendAsWebhook("claude", session.forumPostId, text);

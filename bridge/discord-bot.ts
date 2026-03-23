@@ -291,7 +291,36 @@ export function buildTagMap(
   return map;
 }
 
-/** Create a forum post for a new session */
+/** Find an existing active forum post for a session (by session ID prefix in embed) */
+async function findExistingPost(
+  forumChannel: ForumChannel,
+  sessionId: string,
+): Promise<ThreadChannel | null> {
+  try {
+    const { threads } = await forumChannel.threads.fetchActive();
+    const prefix = sessionId.slice(0, 18);
+
+    for (const thread of threads.values()) {
+      if (thread.parentId !== forumChannel.id) continue;
+      try {
+        const starter = await (thread as ThreadChannel).fetchStarterMessage();
+        const sessionField = starter?.embeds?.[0]?.fields?.find(
+          (f) => f.name === "Session",
+        );
+        if (sessionField?.value === prefix) {
+          return thread as ThreadChannel;
+        }
+      } catch {
+        // Starter message may be missing — skip
+      }
+    }
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Error searching for existing post:`, err);
+  }
+  return null;
+}
+
+/** Create a forum post for a new session, or reuse an existing one */
 export async function createForumPost(
   client: Client,
   config: DiscordConfig,
@@ -306,6 +335,17 @@ export async function createForumPost(
   const forumChannel = (await client.channels.fetch(
     config.forumChannelId,
   )) as ForumChannel;
+
+  // Check for an existing post from a previous bridge run
+  const existing = await findExistingPost(forumChannel, session.sessionId);
+  if (existing) {
+    // Unarchive if it was archived
+    if (existing.archived) {
+      await existing.setArchived(false);
+    }
+    console.log(`${LOG_PREFIX} Reusing existing forum post: "${existing.name}" (${existing.id})`);
+    return existing;
+  }
 
   const projectName = parseProjectName(session.cwd);
   const shortId = session.sessionId.slice(0, 8);

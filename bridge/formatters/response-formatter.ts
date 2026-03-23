@@ -28,12 +28,15 @@ export function formatAssistantText(
     }
     if (meta.usage) {
       const totalTokens = (meta.usage.input_tokens + meta.usage.output_tokens) / 1000;
-      if (totalTokens > 0) {
+      // Only show when it rounds to at least 0.1k (50+ tokens)
+      if (totalTokens >= 0.05) {
         parts.push(`${totalTokens.toFixed(1)}k tokens`);
       }
     }
 
-    if (parts.length > 0) {
+    // Only show footer when there's more than just the model name —
+    // model-only footers on short filler messages are noise
+    if (parts.length > 1) {
       content += `\n-# ${parts.join(" · ")}`;
     }
   }
@@ -43,9 +46,10 @@ export function formatAssistantText(
 
 /** Format user's prompt as it appears in the transcript */
 export function formatUserPrompt(text: string): FormattedMessage {
+  const quoted = text.split('\n').map(line => `> ${line}`).join('\n');
   return {
     webhook: "claude",
-    content: text.split('\n').map(line => `> ${line}`).join('\n'),
+    content: `**You:**\n${quoted}`,
   };
 }
 
