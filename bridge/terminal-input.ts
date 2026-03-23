@@ -1,10 +1,9 @@
 import { LOG_PREFIX } from "./constants";
 
 /**
- * Send keystrokes to a terminal window associated with a Claude Code session.
- * Uses PowerShell on Windows to find the terminal window by PID and inject input.
- * This is the only reliable way to interact with blocking terminal prompts
- * (like plan mode approval) from a remote source like Discord.
+ * Send input to a terminal associated with a Claude Code session.
+ * Uses WriteConsoleInput on Windows to inject keystrokes directly into
+ * the console input buffer — no window focus needed.
  */
 export async function sendTerminalInput(pid: number, input: string): Promise<boolean> {
   if (process.platform !== "win32") {
@@ -19,39 +18,102 @@ export async function sendTerminalInput(pid: number, input: string): Promise<boo
     }
   }
 
-  // Windows: use PowerShell to send keystrokes via AppActivate + SendKeys
-  // We need to find the console window associated with the PID
-  const escapedInput = input.replace(/[+^%~(){}[\]]/g, "{$&}").replace(/\n/g, "{ENTER}");
+  // Windows: use WriteConsoleInput via PowerShell P/Invoke
+  // This writes directly to the console input buffer without needing window focus
+  const escapedChars = JSON.stringify(input);
 
   const script = `
-Add-Type -AssemblyName Microsoft.VisualBasic
-Add-Type -AssemblyName System.Windows.Forms
+$cs = @"
+using System;
+using System.Runtime.InteropServices;
 
-# Find the terminal window — walk up from the Claude Code PID to find the console host
-$targetPid = ${pid}
-$current = $targetPid
+public class ConIn {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool FreeConsole();
 
-# Walk up process tree to find the terminal/console window
-for ($i = 0; $i -lt 10; $i++) {
-    try {
-        $proc = Get-Process -Id $current -ErrorAction Stop
-        if ($proc.MainWindowHandle -ne 0) {
-            [Microsoft.VisualBasic.Interaction]::AppActivate($current)
-            Start-Sleep -Milliseconds 100
-            [System.Windows.Forms.SendKeys]::SendWait("${escapedInput}")
-            Write-Output "OK"
-            exit 0
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AttachConsole(int pid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool WriteConsoleInput(
+        IntPtr hConsoleInput,
+        INPUT_RECORD[] lpBuffer,
+        uint nLength,
+        out uint lpNumberOfEventsWritten);
+
+    public const int STD_INPUT_HANDLE = -10;
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct INPUT_RECORD {
+        [FieldOffset(0)] public ushort EventType;
+        [FieldOffset(4)] public KEY_EVENT_RECORD KeyEvent;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct KEY_EVENT_RECORD {
+        [FieldOffset(0)]  public int bKeyDown;
+        [FieldOffset(4)]  public ushort wRepeatCount;
+        [FieldOffset(6)]  public ushort wVirtualKeyCode;
+        [FieldOffset(8)]  public ushort wVirtualScanCode;
+        [FieldOffset(10)] public char UnicodeChar;
+        [FieldOffset(12)] public uint dwControlKeyState;
+    }
+
+    public static bool Send(int pid, string text) {
+        FreeConsole();
+        if (!AttachConsole(pid)) {
+            int err = Marshal.GetLastWin32Error();
+            Console.Error.WriteLine("AttachConsole failed for PID " + pid + " error=" + err);
+            return false;
         }
-        # Go up to parent
-        $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$current").ParentProcessId
-        if (-not $parent -or $parent -le 1) { break }
-        $current = $parent
-    } catch {
-        break
+
+        IntPtr h = GetStdHandle(STD_INPUT_HANDLE);
+        if (h == IntPtr.Zero || h == (IntPtr)(-1)) {
+            Console.Error.WriteLine("GetStdHandle failed");
+            FreeConsole();
+            return false;
+        }
+
+        var records = new INPUT_RECORD[text.Length * 2];
+        for (int i = 0; i < text.Length; i++) {
+            char c = text[i];
+            ushort vk = 0;
+            if (c == '\\n') vk = 0x0D; // VK_RETURN
+
+            // Key down
+            records[i * 2].EventType = 1; // KEY_EVENT
+            records[i * 2].KeyEvent.bKeyDown = 1;
+            records[i * 2].KeyEvent.wRepeatCount = 1;
+            records[i * 2].KeyEvent.UnicodeChar = c == '\\n' ? '\\r' : c;
+            records[i * 2].KeyEvent.wVirtualKeyCode = vk;
+
+            // Key up
+            records[i * 2 + 1].EventType = 1;
+            records[i * 2 + 1].KeyEvent.bKeyDown = 0;
+            records[i * 2 + 1].KeyEvent.wRepeatCount = 1;
+            records[i * 2 + 1].KeyEvent.UnicodeChar = c == '\\n' ? '\\r' : c;
+            records[i * 2 + 1].KeyEvent.wVirtualKeyCode = vk;
+        }
+
+        uint written;
+        bool ok = WriteConsoleInput(h, records, (uint)records.Length, out written);
+        FreeConsole();
+        return ok;
     }
 }
-Write-Error "Could not find terminal window for PID $targetPid"
-exit 1
+"@
+
+Add-Type -TypeDefinition $cs
+
+$text = ${escapedChars}
+if ([ConIn]::Send(${pid}, $text)) {
+    Write-Output "OK"
+} else {
+    exit 1
+}
 `.trim();
 
   try {
@@ -65,11 +127,11 @@ exit 1
     const stderr = await new Response(proc.stderr).text();
 
     if (exitCode === 0 && stdout.includes("OK")) {
-      console.log(`${LOG_PREFIX} Terminal input sent successfully to PID ${pid}`);
+      console.log(`${LOG_PREFIX} Terminal input sent to PID ${pid}`);
       return true;
     }
 
-    console.error(`${LOG_PREFIX} Terminal input failed: ${stderr.trim()}`);
+    console.error(`${LOG_PREFIX} Terminal input failed (exit=${exitCode}): ${stderr.trim()}`);
     return false;
   } catch (err) {
     console.error(`${LOG_PREFIX} Terminal input error:`, err);
