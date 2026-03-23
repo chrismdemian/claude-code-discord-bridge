@@ -31,31 +31,34 @@ export class MessageSender {
     );
   }
 
-  /** Send a text message via a named webhook into a forum post thread */
+  /** Send a text message via a named webhook into a forum post thread.
+   *  Returns the message ID of the first chunk (for later editing). */
   async sendAsWebhook(
     webhookName: WebhookName,
     threadId: string,
     content: string,
     options?: Partial<WebhookMessageCreateOptions>,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const client = this.clients.get(webhookName);
     if (!client) {
       console.error(`${LOG_PREFIX} Unknown webhook: ${webhookName}`);
-      return;
+      return undefined;
     }
 
-    if (!content.trim()) return;
+    if (!content.trim()) return undefined;
     const chunks = splitMessage(content, MAX_MESSAGE_LENGTH);
+    let firstMessageId: string | undefined;
     for (let i = 0; i < chunks.length; i++) {
       try {
         // Only attach embeds/files to the first chunk to avoid duplicates
         const chunkOptions = i === 0 ? options : undefined;
-        await client.send({
+        const msg = await client.send({
           content: chunks[i],
           threadId,
           flags: MessageFlags.SuppressNotifications,
           ...chunkOptions,
         });
+        if (i === 0) firstMessageId = msg.id;
       } catch (err) {
         console.error(
           `${LOG_PREFIX} Failed to send via ${webhookName} webhook:`,
@@ -63,6 +66,7 @@ export class MessageSender {
         );
       }
     }
+    return firstMessageId;
   }
 
   /** Send an embed via a named webhook */

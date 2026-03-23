@@ -855,12 +855,13 @@ function stopTypingIndicator(sessionId: string): void {
 
 // ── Transcript → Discord routing ──────────────────────────────────────
 
-/** Send a FormattedMessage through the appropriate MessageSender method */
+/** Send a FormattedMessage through the appropriate MessageSender method.
+ *  Returns the message ID of the sent message (for later editing). */
 async function sendFormatted(
   sender: MessageSender,
   threadId: string,
   msg: FormattedMessage,
-): Promise<void> {
+): Promise<string | undefined> {
   const hasContent = !!msg.content;
   const hasEmbeds = !!msg.embeds?.length;
   const hasFiles = !!msg.files?.length;
@@ -872,7 +873,7 @@ async function sendFormatted(
     if (hasFiles) options.files = msg.files;
 
     if (hasContent) {
-      await sender.sendAsWebhook(msg.webhook, threadId, msg.content!, options);
+      return await sender.sendAsWebhook(msg.webhook, threadId, msg.content!, options);
     } else {
       // Embeds only (no content text)
       for (const embed of msg.embeds!) {
@@ -885,6 +886,7 @@ async function sendFormatted(
       await sender.sendFile(msg.webhook, threadId, file);
     }
   }
+  return undefined;
 }
 
 /** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates */
@@ -956,6 +958,8 @@ function wireTranscriptEvents(
   let needsToolSeparator = false;
   // Track whether the last tool result produced visible output (for separator gating)
   let lastToolResultHadOutput = false;
+  // Track Discord message IDs for tool call headers — used to edit results inline
+  const toolCallMessageIds = new Map<string, string>();
 
   tailer.on("entry:assistant", async (entry) => {
     try {
@@ -1108,7 +1112,11 @@ function wireTranscriptEvents(
         }
         // No separators — keep the flow clean like Claude Code's terminal
         const formatted = formatToolCall(block);
-        await sendFormatted(sender, threadId, formatted);
+        const msgId = await sendFormatted(sender, threadId, formatted);
+        // Track message ID so we can edit the result inline later
+        if (msgId && formatted.content) {
+          toolCallMessageIds.set(block.id, msgId);
+        }
       }
 
       session.lastActivity = Date.now();
@@ -1210,9 +1218,35 @@ function wireTranscriptEvents(
             const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
               const messages = Array.isArray(formatted) ? formatted : [formatted];
-              for (const fmtMsg of messages) {
-                await sendFormatted(sender, threadId, fmtMsg);
+
+              // Try to edit result inline into the tool call header message
+              // when it's a single short text result (no embeds/files)
+              const headerMsgId = resultBlock.tool_use_id
+                ? toolCallMessageIds.get(resultBlock.tool_use_id)
+                : undefined;
+              const singleMsg = messages.length === 1 ? messages[0] : null;
+              const canEditInline = headerMsgId
+                && singleMsg?.content
+                && !singleMsg.embeds?.length
+                && !singleMsg.files?.length
+                && singleMsg.content.length < 800;
+
+              if (canEditInline && headerMsgId) {
+                // Find the original tool call header content
+                const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
+                const combined = `${originalHeader}\n${singleMsg!.content}`;
+                await sender.editMessage("claude", headerMsgId, threadId, combined);
+                toolCallMessageIds.delete(resultBlock.tool_use_id!);
+              } else {
+                for (const fmtMsg of messages) {
+                  await sendFormatted(sender, threadId, fmtMsg);
+                }
               }
+            }
+
+            // Clean up tracked message IDs
+            if (resultBlock.tool_use_id) {
+              toolCallMessageIds.delete(resultBlock.tool_use_id);
             }
 
             // Mark that we need a separator before the next tool call
