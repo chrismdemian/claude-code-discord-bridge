@@ -411,6 +411,41 @@ async function main() {
         }
       }
 
+      // Channel permission relay — receives permission requests from the MCP server
+      // and blocks until Discord user approves/denies (up to 10 min)
+      if (url.pathname === "/api/channel-permission" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const { sessionId, tool_name, tool_input, description, id } = body as {
+            sessionId: string;
+            tool_name?: string;
+            tool_input?: Record<string, unknown>;
+            description?: string;
+            id?: string;
+          };
+          const session = sessions.get(sessionId);
+          if (!session) {
+            return Response.json({ approved: false }, { status: 404 });
+          }
+
+          console.log(`${LOG_PREFIX} Channel permission request: ${tool_name ?? "unknown"} (session=${sessionId.slice(0, 8)})`);
+
+          // Reuse the existing hook-based permission flow
+          const result = await hookReceiver.handleHook("permission-request", {
+            session_id: sessionId,
+            tool_name: tool_name ?? "unknown",
+            tool_input: tool_input ?? {},
+            description: description ?? `Approve ${tool_name ?? "action"}?`,
+          });
+
+          const approved = (result as { approved?: boolean })?.approved ?? false;
+          return Response.json({ approved, id });
+        } catch (err) {
+          console.error(`${LOG_PREFIX} channel-permission error:`, err);
+          return Response.json({ approved: false }, { status: 500 });
+        }
+      }
+
       // Health check
       if (url.pathname === "/health") {
         return Response.json({

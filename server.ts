@@ -19,7 +19,10 @@ const mcp = new Server(
   {
     capabilities: {
       tools: {},
-      experimental: { "claude/channel": {} },
+      experimental: {
+        "claude/channel": {},
+        "claude/channel/permission": {},
+      },
     },
     instructions: [
       "Messages from Discord arrive as <channel source=\"discord-bridge\" ...>.",
@@ -339,6 +342,61 @@ async function pollForMessages(sessionId: string): Promise<void> {
     }
   }
 }
+
+// ── Channel Permission Relay ─────────────────────────────────────────
+// When Claude Code needs tool approval (including ExitPlanMode/plan mode),
+// it sends a permission_request notification via the channel. We relay it
+// to the bridge service, which shows it in Discord. When the user clicks
+// Approve/Deny, we send the verdict back to Claude Code.
+
+// Use fallback handler to catch channel permission requests from Claude Code.
+// The MCP SDK's setNotificationHandler requires exact Zod schemas that cause
+// type recursion issues, so we use the fallback for experimental notifications.
+const origFallback = mcp.fallbackNotificationHandler;
+mcp.fallbackNotificationHandler = async (notification) => {
+  const method = (notification as { method?: string }).method;
+  if (method !== "notifications/claude/channel/permission_request") {
+    // Not ours — delegate to original fallback if one exists
+    if (origFallback) return origFallback(notification);
+    return;
+  }
+
+  if (!currentSessionId) return;
+
+  const params = ((notification as { params?: Record<string, unknown> }).params ?? {}) as Record<string, unknown>;
+  console.error(`${PREFIX} Permission request via channel: ${JSON.stringify(params).slice(0, 200)}`);
+
+  try {
+    const res = await fetch(`${BRIDGE_URL}/api/channel-permission`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: currentSessionId,
+        ...params,
+      }),
+      signal: AbortSignal.timeout(600_000),
+    });
+
+    if (res.ok) {
+      const verdict = (await res.json()) as { approved: boolean };
+      console.error(`${PREFIX} Permission verdict: ${verdict.approved ? "approved" : "denied"}`);
+
+      mcp.notification({
+        method: "notifications/claude/channel/permission",
+        params: {
+          id: params.id,
+          approved: verdict.approved,
+        },
+      }).catch((err) => {
+        console.error(`${PREFIX} Permission verdict notification FAILED:`, err);
+      });
+    } else {
+      console.error(`${PREFIX} Bridge permission relay returned ${res.status}`);
+    }
+  } catch (err) {
+    console.error(`${PREFIX} Permission relay error:`, err);
+  }
+};
 
 // ── MCP Tools ────────────────────────────────────────────────────────
 
