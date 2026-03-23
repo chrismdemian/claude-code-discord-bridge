@@ -10,13 +10,14 @@ import {
 import type { BridgeSession } from "../types";
 import type { McpRelay } from "../mcp-relay";
 import { buildPlanProgressEmbed } from "../formatters/plan-formatter";
-import { sendTerminalInput } from "../terminal-input";
 
 /**
  * Shared logic for all execute variants (options 1-3).
- * Sends the option number via BOTH channel notification AND terminal input injection.
- * The channel notification works for normal prompts; the terminal input injection
- * works for blocking TUI prompts like plan mode acceptance.
+ * Sends the option number as a channel notification message.
+ * Note: Formal plan mode (ExitPlanMode) creates a blocking terminal prompt
+ * that cannot be controlled remotely. The MCP server instructions tell Claude
+ * to avoid formal plan mode for Discord users and output plans as regular text
+ * instead, which can be approved via normal Discord messages.
  */
 async function executePlan(
   interaction: ButtonInteraction,
@@ -24,16 +25,14 @@ async function executePlan(
   relay: McpRelay,
   option: string,
 ): Promise<void> {
-  // Try both paths — one of them will work depending on the prompt type
   const channelSent = relay.enqueueMessage(session.sessionId, option, interaction.user.id);
 
-  // Also inject directly into the terminal for blocking prompts
-  sendTerminalInput(session.pid, `${option}\n`, session.cwd).catch(() => {
-    // Best-effort — channel notification may handle it
-  });
-
   if (!channelSent) {
-    // Channel not connected, but terminal input may still work
+    await interaction.reply({
+      content: "Session is read-only (no channel plugin connected).",
+      ephemeral: true,
+    });
+    return;
   }
 
   // Initialize execution tracking
