@@ -2,14 +2,14 @@ import { LOG_PREFIX } from "./constants";
 
 /**
  * Send input to a terminal associated with a Claude Code session.
- * Uses WriteConsoleInput on Windows to inject keystrokes directly into
- * the console input buffer — no window focus needed.
+ * Uses WriteConsoleInput on Windows via AttachConsole + CreateFile("CONIN$")
+ * to inject keystrokes directly into the console input buffer.
+ * No window focus needed — works with Windows Terminal ConPTY.
  */
 export async function sendTerminalInput(pid: number, input: string): Promise<boolean> {
   if (process.platform !== "win32") {
-    // On Unix, try writing to /proc/<pid>/fd/0 (terminal stdin)
     try {
-      const proc = Bun.spawn(["bash", "-c", `echo '${input.replace(/'/g, "'\\''")}' > /proc/${pid}/fd/0`]);
+      const proc = Bun.spawn(["bash", "-c", `printf '%s' '${input.replace(/'/g, "'\\''")}' > /proc/${pid}/fd/0`]);
       await proc.exited;
       return proc.exitCode === 0;
     } catch (err) {
@@ -18,9 +18,14 @@ export async function sendTerminalInput(pid: number, input: string): Promise<boo
     }
   }
 
-  // Windows: use WriteConsoleInput via PowerShell P/Invoke
-  // This writes directly to the console input buffer without needing window focus
-  const escapedChars = JSON.stringify(input);
+  // Build C# char array from input string
+  const charArray = Array.from(input).map(c => {
+    if (c === '\n') return "(char)10";
+    if (c === '\r') return "(char)13";
+    return `(char)${c.charCodeAt(0)}`;
+  }).join(", ");
+
+  const scriptPath = `${(process.env.HOME || process.env.USERPROFILE || ".").replace(/\\/g, "/")}/_bridge_input.ps1`;
 
   const script = `
 $cs = @"
@@ -34,25 +39,27 @@ public class ConIn {
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool AttachConsole(int pid);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern IntPtr GetStdHandle(int nStdHandle);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr CreateFileW(
+        string lpFileName, uint dwDesiredAccess, uint dwShareMode,
+        IntPtr lpSecurityAttributes, uint dwCreationDisposition,
+        uint dwFlagsAndAttributes, IntPtr hTemplateFile);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr h);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool WriteConsoleInput(
-        IntPtr hConsoleInput,
-        INPUT_RECORD[] lpBuffer,
-        uint nLength,
-        out uint lpNumberOfEventsWritten);
+        IntPtr hConsoleInput, INPUT_RECORD[] lpBuffer,
+        uint nLength, out uint lpNumberOfEventsWritten);
 
-    public const int STD_INPUT_HANDLE = -10;
-
-    [StructLayout(LayoutKind.Explicit)]
+    [StructLayout(LayoutKind.Explicit, CharSet = CharSet.Unicode)]
     public struct INPUT_RECORD {
         [FieldOffset(0)] public ushort EventType;
         [FieldOffset(4)] public KEY_EVENT_RECORD KeyEvent;
     }
 
-    [StructLayout(LayoutKind.Explicit)]
+    [StructLayout(LayoutKind.Explicit, CharSet = CharSet.Unicode)]
     public struct KEY_EVENT_RECORD {
         [FieldOffset(0)]  public int bKeyDown;
         [FieldOffset(4)]  public ushort wRepeatCount;
@@ -62,44 +69,50 @@ public class ConIn {
         [FieldOffset(12)] public uint dwControlKeyState;
     }
 
-    public static bool Send(int pid, string text) {
+    public static bool Send(int pid, char[] chars) {
         FreeConsole();
         if (!AttachConsole(pid)) {
-            int err = Marshal.GetLastWin32Error();
-            Console.Error.WriteLine("AttachConsole failed for PID " + pid + " error=" + err);
+            Console.Error.WriteLine("AttachConsole(" + pid + ") failed: " + Marshal.GetLastWin32Error());
             return false;
         }
 
-        IntPtr h = GetStdHandle(STD_INPUT_HANDLE);
-        if (h == IntPtr.Zero || h == (IntPtr)(-1)) {
-            Console.Error.WriteLine("GetStdHandle failed");
+        // CONIN$ gives the attached console's input buffer handle
+        IntPtr h = CreateFileW("CONIN$", 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (h == (IntPtr)(-1)) {
+            Console.Error.WriteLine("CreateFile CONIN$ failed: " + Marshal.GetLastWin32Error());
             FreeConsole();
             return false;
         }
 
-        var records = new INPUT_RECORD[text.Length * 2];
-        for (int i = 0; i < text.Length; i++) {
-            char c = text[i];
+        var records = new INPUT_RECORD[chars.Length * 2];
+        for (int i = 0; i < chars.Length; i++) {
+            char c = chars[i];
             ushort vk = 0;
-            if (c == '\\n') vk = 0x0D; // VK_RETURN
+            char uc = c;
+            // Map newline to Enter key
+            if (c == (char)10 || c == (char)13) { vk = 0x0D; uc = (char)13; }
 
             // Key down
-            records[i * 2].EventType = 1; // KEY_EVENT
+            records[i * 2].EventType = 1;
             records[i * 2].KeyEvent.bKeyDown = 1;
             records[i * 2].KeyEvent.wRepeatCount = 1;
-            records[i * 2].KeyEvent.UnicodeChar = c == '\\n' ? '\\r' : c;
+            records[i * 2].KeyEvent.UnicodeChar = uc;
             records[i * 2].KeyEvent.wVirtualKeyCode = vk;
 
             // Key up
             records[i * 2 + 1].EventType = 1;
             records[i * 2 + 1].KeyEvent.bKeyDown = 0;
             records[i * 2 + 1].KeyEvent.wRepeatCount = 1;
-            records[i * 2 + 1].KeyEvent.UnicodeChar = c == '\\n' ? '\\r' : c;
+            records[i * 2 + 1].KeyEvent.UnicodeChar = uc;
             records[i * 2 + 1].KeyEvent.wVirtualKeyCode = vk;
         }
 
         uint written;
         bool ok = WriteConsoleInput(h, records, (uint)records.Length, out written);
+        if (!ok) {
+            Console.Error.WriteLine("WriteConsoleInput failed: " + Marshal.GetLastWin32Error());
+        }
+        CloseHandle(h);
         FreeConsole();
         return ok;
     }
@@ -108,16 +121,17 @@ public class ConIn {
 
 Add-Type -TypeDefinition $cs
 
-$text = ${escapedChars}
-if ([ConIn]::Send(${pid}, $text)) {
+$chars = @(${charArray})
+if ([ConIn]::Send(${pid}, $chars)) {
     Write-Output "OK"
 } else {
     exit 1
 }
-`.trim();
+`;
 
   try {
-    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-Command", script], {
+    await Bun.write(scriptPath, script);
+    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -131,7 +145,7 @@ if ([ConIn]::Send(${pid}, $text)) {
       return true;
     }
 
-    console.error(`${LOG_PREFIX} Terminal input failed (exit=${exitCode}): ${stderr.trim()}`);
+    console.error(`${LOG_PREFIX} Terminal input failed (exit=${exitCode}): ${stderr.trim() || stdout.trim()}`);
     return false;
   } catch (err) {
     console.error(`${LOG_PREFIX} Terminal input error:`, err);
