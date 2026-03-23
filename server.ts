@@ -30,6 +30,7 @@ const mcp = new Server(
       "Treat them as user input and respond normally.",
       "Use the send_to_discord tool to send files or images to the Discord session.",
       "Use the react_in_discord tool to react with emoji.",
+      "IMPORTANT: Do NOT use formal plan mode (EnterPlanMode/ExitPlanMode) when responding to Discord messages. The user is on their phone and cannot interact with terminal-blocking prompts. Instead, output your plan as regular text with numbered steps, and ask for approval via a normal message. The user will reply from Discord.",
     ].join("\n"),
   },
 );
