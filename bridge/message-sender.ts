@@ -2,6 +2,7 @@ import {
   WebhookClient,
   EmbedBuilder,
   AttachmentBuilder,
+  MessageFlags,
   type WebhookMessageCreateOptions,
 } from "discord.js";
 import type { DiscordConfig } from "./types";
@@ -52,6 +53,7 @@ export class MessageSender {
         await client.send({
           content: chunks[i],
           threadId,
+          flags: MessageFlags.SuppressNotifications,
           ...chunkOptions,
         });
       } catch (err) {
@@ -73,7 +75,7 @@ export class MessageSender {
     if (!client) return;
 
     try {
-      await client.send({ embeds: [embed], threadId });
+      await client.send({ embeds: [embed], threadId, flags: MessageFlags.SuppressNotifications });
     } catch (err) {
       console.error(
         `${LOG_PREFIX} Failed to send embed via ${webhookName}:`,
@@ -120,6 +122,7 @@ export class MessageSender {
         files: [attachment],
         content,
         threadId,
+        flags: MessageFlags.SuppressNotifications,
       });
     } catch (err) {
       console.error(

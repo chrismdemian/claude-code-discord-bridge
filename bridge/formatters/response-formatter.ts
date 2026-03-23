@@ -28,7 +28,9 @@ export function formatAssistantText(
     }
     if (meta.usage) {
       const totalTokens = (meta.usage.input_tokens + meta.usage.output_tokens) / 1000;
-      parts.push(`${totalTokens.toFixed(1)}k tokens`);
+      if (totalTokens > 0) {
+        parts.push(`${totalTokens.toFixed(1)}k tokens`);
+      }
     }
 
     if (parts.length > 0) {

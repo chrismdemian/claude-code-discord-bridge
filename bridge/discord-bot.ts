@@ -9,6 +9,7 @@ import {
   ChannelType,
   EmbedBuilder,
   ActivityType,
+  MessageFlags,
   ThreadAutoArchiveDuration,
   type ForumChannel,
   type GuildForumTagData,
@@ -348,7 +349,11 @@ export async function createForumPost(
 
   const post = await forumChannel.threads.create({
     name: postName,
-    message: { embeds: [embed], components: [buttonRow] },
+    message: {
+      embeds: [embed],
+      components: [buttonRow],
+      flags: [MessageFlags.SuppressNotifications],
+    },
     appliedTags,
     autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
   });

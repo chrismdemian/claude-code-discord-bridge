@@ -5,7 +5,6 @@ import type {
   DiscordConfig,
   PermissionRequestHook,
   SessionEndHook,
-  StopHook,
   StopFailureHook,
   PostToolUseFailureHook,
   PreCompactHook,
@@ -121,7 +120,11 @@ export class HookReceiver {
       case "PermissionRequest":
         return this.handlePermissionRequest(payload as PermissionRequestHook);
       case "Stop":
-        return this.handleStop(payload as StopHook);
+        // No-op: the Stop hook fires at the end of every Claude turn, not just
+        // user-initiated stops. The transcript tailer already shows Claude's
+        // response, so posting here would duplicate the last message and show
+        // a misleading "Claude stopped" label on every normal response.
+        return { ok: true };
       case "StopFailure":
         return this.handleStopFailure(payload as StopFailureHook);
       case "PostToolUse":
@@ -308,20 +311,6 @@ export class HookReceiver {
     });
 
     return result;
-  }
-
-  private async handleStop(payload: StopHook): Promise<{ ok: true }> {
-    const session = this.sessions.get(payload.session_id);
-    if (!session) return { ok: true };
-
-    let text = "⏹️ Claude stopped";
-    if (payload.last_assistant_message) {
-      const snippet = truncate(payload.last_assistant_message, 1500);
-      text += `\n> ${snippet}`;
-    }
-
-    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
-    return { ok: true };
   }
 
   private async handleStopFailure(

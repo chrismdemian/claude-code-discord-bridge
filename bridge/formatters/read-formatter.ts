@@ -32,33 +32,17 @@ export function formatReadResult(
     return { webhook: "claude", content: codeBlock };
   }
 
-  // Too long: show first 30 + last 10 lines, attach full file
-  const lines = text.split("\n");
-  const headCount = Math.min(30, lines.length);
-  const tailCount = Math.min(10, Math.max(0, lines.length - headCount));
-  const omitted = lines.length - headCount - tailCount;
-
-  const headLines = lines.slice(0, headCount).join("\n");
-  const escapedHead = headLines.replace(/```/g, "` ` `");
-
-  let preview: string;
-  if (tailCount > 0 && omitted > 0) {
-    const tailLines = lines.slice(-tailCount).join("\n");
-    const escapedTail = tailLines.replace(/```/g, "` ` `");
-    preview = `\`\`\`${lang}\n${escapedHead}\n\`\`\`\n... ${omitted} lines omitted ...\n\`\`\`${lang}\n${escapedTail}\n\`\`\``;
-  } else {
-    preview = `\`\`\`${lang}\n${escapedHead}\n\`\`\``;
-  }
-
-  preview += "\n*Full content in attached file*";
+  // Too long: attach full file with a brief summary (Discord auto-previews text files)
+  const lineCount = text.split("\n").length;
+  const fileName = filePath.split(/[/\\]/).pop() ?? "file.txt";
 
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
-    name: filePath.split(/[/\\]/).pop() ?? "file.txt",
+    name: fileName,
   });
 
   return {
     webhook: "claude",
-    content: preview,
+    content: `*${lineCount} lines — see attached*`,
     files: [attachment],
   };
 }

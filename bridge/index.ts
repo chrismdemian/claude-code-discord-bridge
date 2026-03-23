@@ -44,6 +44,7 @@ import {
 import {
   Events,
   EmbedBuilder,
+  MessageFlags,
   type Client,
   type ThreadChannel,
 } from "discord.js";
@@ -889,6 +890,33 @@ async function sendFormatted(
 /** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates */
 const BRIDGE_MCP_TOOLS = new Set(["send_to_discord", "react_in_discord"]);
 
+/** Internal/system tools that are not user-facing — skip both call headers and results */
+const INTERNAL_TOOLS = new Set([
+  "ToolSearch",
+  "TaskCreate",
+  "TaskUpdate",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "TaskStop",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "EnterWorktree",
+  "ExitWorktree",
+  "Skill",
+  "AskUserQuestion",
+  "TodoRead",
+  "TodoWrite",
+  "NotebookEdit",
+  "SendMessage",
+  "RemoteTrigger",
+  "CronCreate",
+  "CronDelete",
+  "CronList",
+  "LSP",
+  "Config",
+]);
+
 /** Patterns that indicate internal/system messages not meant for Discord display */
 const INTERNAL_MESSAGE_PATTERNS = [
   /^Async agent launched/i,
@@ -898,6 +926,12 @@ const INTERNAL_MESSAGE_PATTERNS = [
   /\(internal ID\b/i,
   /^File content \(\d+ tokens?\) exceeds/i,
   /^<system-reminder>/,
+  /^<task-notification\b/,
+  /^<task-update\b/,
+  /^<task-result\b/,
+  /^Command running in background/i,
+  /^Read the output file to retrieve/i,
+  /^Shell cwd was reset to/i,
 ];
 
 /** Check whether a text block is internal metadata that should not be shown in Discord */
@@ -918,6 +952,8 @@ function wireTranscriptEvents(
   const suppressedToolIds = new Set<string>();
   // Track whether we need a separator before the next tool call
   let needsToolSeparator = false;
+  // Track whether the last tool result produced visible output (for separator gating)
+  let lastToolResultHadOutput = false;
 
   tailer.on("entry:assistant", async (entry) => {
     try {
@@ -981,7 +1017,10 @@ function wireTranscriptEvents(
       }
 
       // Reset separator when assistant produces text between tool operations
-      if (textBlocks.length > 0) needsToolSeparator = false;
+      if (textBlocks.length > 0) {
+        needsToolSeparator = false;
+        lastToolResultHadOutput = false;
+      }
 
       // Send text blocks; last one gets metadata footer if no tool calls follow
       for (let i = 0; i < textBlocks.length; i++) {
@@ -1043,6 +1082,7 @@ function wireTranscriptEvents(
                 embeds,
                 components,
                 allowedMentions: { parse: [] },
+                flags: [MessageFlags.SuppressNotifications],
               });
               session.planMessageId = sentMsg.id;
             }
@@ -1057,15 +1097,18 @@ function wireTranscriptEvents(
         toolUseBlocks.set(block.id, block);
         // Skip bridge MCP tools — they already sent to Discord directly
         if (BRIDGE_MCP_TOOLS.has(block.name)) continue;
+        // Skip internal/system tools — not user-facing
+        if (INTERNAL_TOOLS.has(block.name)) continue;
         // Suppress chunked Read calls (offset > 0) — only show the first chunk
         if (block.name === "Read" && block.input.offset != null && Number(block.input.offset) > 0) {
           suppressedToolIds.add(block.id);
           continue;
         }
-        // Add visual separator between tool operations
-        if (needsToolSeparator) {
+        // Add visual separator between tool operations (only when previous tool had output)
+        if (needsToolSeparator && lastToolResultHadOutput) {
           await sender.sendAsWebhook("claude", threadId, "───");
           needsToolSeparator = false;
+          lastToolResultHadOutput = false;
         }
         const formatted = formatToolCall(block);
         await sendFormatted(sender, threadId, formatted);
@@ -1103,7 +1146,15 @@ function wireTranscriptEvents(
         ) {
           return;
         }
+        // Skip messages that originated from Discord — they're already
+        // visible in the thread as the user's own message. Re-posting
+        // them through the Claude webhook makes it look like Claude said it.
+        if (text.includes("<channel source=\"discord-bridge\"")) {
+          return;
+        }
         if (!text.trim()) return;
+        // Skip internal/system messages (task notifications, background task info, etc.)
+        if (isInternalMessage(text)) return;
 
         const formatted = formatUserPrompt(text);
         await sendFormatted(sender, threadId, formatted);
@@ -1137,6 +1188,12 @@ function wireTranscriptEvents(
               continue;
             }
 
+            // Skip internal/system tools — not user-facing
+            if (INTERNAL_TOOLS.has(toolName)) {
+              if (resultBlock.tool_use_id) toolUseBlocks.delete(resultBlock.tool_use_id);
+              continue;
+            }
+
             // Skip suppressed chunked Read results
             if (resultBlock.tool_use_id && suppressedToolIds.has(resultBlock.tool_use_id)) {
               suppressedToolIds.delete(resultBlock.tool_use_id);
@@ -1153,7 +1210,10 @@ function wireTranscriptEvents(
             }
 
             // Mark that we need a separator before the next tool call
-            if (formatted) needsToolSeparator = true;
+            if (formatted) {
+              needsToolSeparator = true;
+              lastToolResultHadOutput = true;
+            }
 
             // Clean up after result is processed to prevent memory leak
             if (resultBlock.tool_use_id) {

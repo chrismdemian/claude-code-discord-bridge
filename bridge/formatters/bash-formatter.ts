@@ -21,6 +21,8 @@ export function formatBashResult(
 ): FormattedMessage | null {
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
+  // Filter out the "no output" placeholder — not useful in Discord
+  if (/^\(Bash completed with no output\)$/i.test(text.trim())) return null;
 
   // Error: red embed with stderr
   if (result.is_error) {
