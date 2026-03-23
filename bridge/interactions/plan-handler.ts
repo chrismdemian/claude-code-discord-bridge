@@ -10,10 +10,13 @@ import {
 import type { BridgeSession } from "../types";
 import type { McpRelay } from "../mcp-relay";
 import { buildPlanProgressEmbed } from "../formatters/plan-formatter";
+import { sendTerminalInput } from "../terminal-input";
 
 /**
  * Shared logic for all execute variants (options 1-3).
- * Sends the option number to Claude and starts step tracking.
+ * Sends the option number via BOTH channel notification AND terminal input injection.
+ * The channel notification works for normal prompts; the terminal input injection
+ * works for blocking TUI prompts like plan mode acceptance.
  */
 async function executePlan(
   interaction: ButtonInteraction,
@@ -21,13 +24,16 @@ async function executePlan(
   relay: McpRelay,
   option: string,
 ): Promise<void> {
-  const sent = relay.enqueueMessage(session.sessionId, option, interaction.user.id);
-  if (!sent) {
-    await interaction.reply({
-      content: "Session is read-only (no channel plugin connected).",
-      ephemeral: true,
-    });
-    return;
+  // Try both paths — one of them will work depending on the prompt type
+  const channelSent = relay.enqueueMessage(session.sessionId, option, interaction.user.id);
+
+  // Also inject directly into the terminal for blocking prompts
+  sendTerminalInput(session.pid, `${option}\n`).catch(() => {
+    // Best-effort — channel notification may handle it
+  });
+
+  if (!channelSent) {
+    // Channel not connected, but terminal input may still work
   }
 
   // Initialize execution tracking
