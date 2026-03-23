@@ -66,7 +66,7 @@ import {
   formatSystemEvent,
 } from "./formatters/response-formatter";
 import { calculateCost } from "./formatters/cost";
-import { parseProjectName } from "./formatters/utils";
+import { parseProjectName, shortenPath } from "./formatters/utils";
 
 const sessions = new Map<string, BridgeSession>();
 const pendingSessionIds = new Set<string>();
@@ -978,6 +978,23 @@ function isInternalMessage(text: string): boolean {
   return INTERNAL_MESSAGE_PATTERNS.some((p) => p.test(text));
 }
 
+/** Replace absolute paths with relative ones in text content for mobile readability */
+function shortenPathsInText(text: string, cwd: string): string {
+  if (!cwd) return text;
+  const fwd = cwd.replace(/\\/g, "/");
+  const variants = [fwd, fwd.toLowerCase()];
+  let result = text;
+  for (const prefix of variants) {
+    // Replace cwd/ with nothing (makes paths relative)
+    const withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
+    result = result.split(withSlash).join("");
+  }
+  // Also handle backslash variants
+  const bwd = cwd.replace(/\//g, "\\");
+  result = result.split(bwd + "\\").join("");
+  return result;
+}
+
 function wireTranscriptEvents(
   tailer: TranscriptTailer,
   session: BridgeSession,
@@ -1147,6 +1164,10 @@ function wireTranscriptEvents(
         }
         // No separators — keep the flow clean like Claude Code's terminal
         const formatted = formatToolCall(block);
+        // Shorten absolute paths in tool call headers for mobile readability
+        if (formatted.content) {
+          formatted.content = shortenPathsInText(formatted.content, session.cwd);
+        }
         const msgId = await sendFormatted(sender, threadId, formatted);
         // Track message ID so we can edit the result inline later
         if (msgId && formatted.content) {

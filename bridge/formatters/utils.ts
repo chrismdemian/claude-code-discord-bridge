@@ -36,6 +36,25 @@ export function extractResultText(content: string | unknown[]): string {
   return parts.join("\n");
 }
 
+/** Shorten an absolute file path to a relative one by stripping the project cwd */
+export function shortenPath(filePath: string, cwd?: string): string {
+  if (!cwd || !filePath) return filePath;
+  // Normalize to forward slashes for comparison
+  const normPath = filePath.replace(/\\/g, "/").toLowerCase();
+  const normCwd = cwd.replace(/\\/g, "/").toLowerCase();
+  const cwdWithSlash = normCwd.endsWith("/") ? normCwd : normCwd + "/";
+  if (normPath.startsWith(cwdWithSlash)) {
+    return filePath.slice(cwdWithSlash.length).replace(/\\/g, "/");
+  }
+  // Also try original casing
+  const origNorm = filePath.replace(/\\/g, "/");
+  const origCwd = (cwd.replace(/\\/g, "/") + "/");
+  if (origNorm.startsWith(origCwd)) {
+    return origNorm.slice(origCwd.length);
+  }
+  return filePath;
+}
+
 /** Wrap text in a Discord code block with optional language hint */
 export function wrapCodeBlock(text: string, lang: string = ""): string {
   // Escape any triple backticks in the content to prevent breaking out

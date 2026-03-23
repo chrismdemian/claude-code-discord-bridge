@@ -16,12 +16,12 @@ export function formatGlobCall(toolUse: ToolUseBlock): FormattedMessage {
 export function formatGlobResult(
   _toolUse: ToolUseBlock,
   result: ToolResultBlock,
-  _session: BridgeSession,
+  session: BridgeSession,
 ): FormattedMessage | null {
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
-  return formatSearchOutput("🔍 Glob results", text);
+  return formatSearchOutput(text, session.cwd);
 }
 
 export function formatGrepCall(toolUse: ToolUseBlock): FormattedMessage {
@@ -35,16 +35,38 @@ export function formatGrepCall(toolUse: ToolUseBlock): FormattedMessage {
 export function formatGrepResult(
   _toolUse: ToolUseBlock,
   result: ToolResultBlock,
-  _session: BridgeSession,
+  session: BridgeSession,
 ): FormattedMessage | null {
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
-  return formatSearchOutput("🔍 Grep results", text);
+  return formatSearchOutput(text, session.cwd);
 }
 
-function formatSearchOutput(_header: string, text: string): FormattedMessage {
-  const escaped = text.replace(/```/g, "` ` `");
+/** Strip the project cwd prefix from paths to show relative paths */
+function stripCwdPrefix(text: string, cwd: string): string {
+  if (!cwd) return text;
+  // Normalize separators and create variants to match
+  const variants = [
+    cwd,
+    cwd.replace(/\\/g, "/"),
+    cwd.replace(/\//g, "\\"),
+    cwd.toLowerCase(),
+    cwd.toLowerCase().replace(/\\/g, "/"),
+  ];
+  let result = text;
+  for (const prefix of variants) {
+    // Replace prefix + separator with relative path
+    result = result.split(prefix + "/").join("./");
+    result = result.split(prefix + "\\").join("./");
+  }
+  return result;
+}
+
+function formatSearchOutput(text: string, cwd: string): FormattedMessage {
+  // Strip absolute paths down to relative
+  const cleaned = stripCwdPrefix(text, cwd);
+  const escaped = cleaned.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`\n${escaped}\n\`\`\``;
 
   // Short output: send inline
