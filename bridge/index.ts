@@ -1342,25 +1342,23 @@ function wireTranscriptEvents(
 
               // Collapsible content (e.g., Read results) — send via bot with Show/Hide button
               if (singleMsg?.collapsedText && singleMsg.content) {
-                // Delete the webhook header message — we'll combine it into the collapsible
                 const headerMsgId = resultBlock.tool_use_id
                   ? toolCallMessageIds.get(resultBlock.tool_use_id)
                   : undefined;
+                const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
+                const shortHeader = shortenPathsInText(originalHeader, session.cwd);
+
+                // Send ONE bot message with header + collapsed text + Show button
+                await sendCollapsible(
+                  client, threadId,
+                  `${shortHeader}\n${singleMsg.collapsedText}`,
+                  `${shortHeader}\n${singleMsg.content}`,
+                );
+
+                // Delete the redundant webhook header
                 if (headerMsgId) {
-                  // Edit header to combined compact line (can't delete webhook msgs, so edit)
-                  const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
-                  const shortHeader = shortenPathsInText(originalHeader, session.cwd);
-                  // Send combined header + collapsible as ONE bot message
-                  await sendCollapsible(
-                    client, threadId,
-                    `${shortHeader}\n${singleMsg.collapsedText}`,
-                    `${shortHeader}\n${singleMsg.content}`,
-                  );
-                  // Blank out the webhook header since we replaced it
-                  await sender.editMessage("claude", headerMsgId, threadId, shortHeader);
+                  await sender.deleteMessage("claude", headerMsgId, threadId);
                   toolCallMessageIds.delete(resultBlock.tool_use_id!);
-                } else {
-                  await sendCollapsible(client, threadId, singleMsg.collapsedText, singleMsg.content);
                 }
               } else {
                 // Try to edit result inline into the tool call header message

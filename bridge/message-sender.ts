@@ -88,6 +88,25 @@ export class MessageSender {
     }
   }
 
+  /** Delete a webhook message */
+  async deleteMessage(
+    webhookName: WebhookName,
+    messageId: string,
+    threadId: string,
+  ): Promise<void> {
+    const client = this.clients.get(webhookName);
+    if (!client) return;
+
+    try {
+      await client.deleteMessage(messageId, threadId);
+    } catch (err) {
+      console.error(
+        `${LOG_PREFIX} Failed to delete message ${messageId} via ${webhookName}:`,
+        err,
+      );
+    }
+  }
+
   /** Edit an existing webhook message */
   async editMessage(
     webhookName: WebhookName,
