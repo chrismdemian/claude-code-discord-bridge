@@ -19,7 +19,7 @@ export function formatBashCall(toolUse: ToolUseBlock): FormattedMessage {
 export function formatBashResult(
   toolUse: ToolUseBlock,
   result: ToolResultBlock,
-  _session: BridgeSession,
+  session: BridgeSession,
 ): FormattedMessage | null {
   let text = extractResultText(result.content);
   // Strip "Shell cwd was reset" lines from bash output
@@ -28,12 +28,23 @@ export function formatBashResult(
   // Filter out the "no output" placeholder — not useful in Discord
   if (/^\(Bash completed with no output\)$/i.test(text.trim())) return null;
 
-  // Error: red embed with stderr (truncated for mobile)
+  // Error: red embed with stderr (truncated for mobile, paths shortened)
   if (result.is_error) {
+    let errorText = text;
+    if (session.cwd) {
+      const fwd = session.cwd.replace(/\\/g, "/") + "/";
+      const bwd = session.cwd.replace(/\//g, "\\") + "\\";
+      let idx = errorText.toLowerCase().indexOf(fwd.toLowerCase());
+      while (idx !== -1) {
+        errorText = errorText.slice(0, idx) + errorText.slice(idx + fwd.length);
+        idx = errorText.toLowerCase().indexOf(fwd.toLowerCase());
+      }
+      errorText = errorText.split(bwd).join("");
+    }
     const embed = new EmbedBuilder()
       .setTitle("🔴 Command Failed")
       .setColor(COLORS.RED)
-      .setDescription(wrapCodeBlock(truncate(text, 500), "ansi"));
+      .setDescription(wrapCodeBlock(truncate(errorText, 500), "ansi"));
 
     if (toolUse.input.command) {
       embed.addFields({
