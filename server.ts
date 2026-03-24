@@ -299,24 +299,36 @@ async function pollForMessages(sessionId: string): Promise<void> {
       if (res.status === 200) {
         consecutiveErrors = 0;
         const msg = (await res.json()) as {
-          message: string;
-          senderId: string;
+          type?: string;
+          message?: string;
+          senderId?: string;
+          request_id?: string;
+          behavior?: string;
         };
-        console.error(`${PREFIX} Received message from Discord: "${msg.message.slice(0, 50)}"`);
-        // Inject into Claude Code via MCP channel notification
-        mcp.notification({
-          method: "notifications/claude/channel",
-          params: {
-            content: msg.message,
-            meta: {
-              sender_id: msg.senderId,
-              source: "discord",
+
+        // Permission verdict from Discord button click
+        if (msg.type === "permission_verdict" && msg.request_id && msg.behavior) {
+          sendPermissionVerdict(msg.request_id, msg.behavior as "allow" | "deny");
+          continue;
+        }
+
+        // Normal chat message from Discord
+        if (msg.message) {
+          console.error(`${PREFIX} Received message from Discord: "${msg.message.slice(0, 50)}"`);
+          mcp.notification({
+            method: "notifications/claude/channel",
+            params: {
+              content: msg.message,
+              meta: {
+                sender_id: msg.senderId ?? "unknown",
+                source: "discord",
+              },
             },
-          },
-        }).catch((err) => {
-          console.error(`${PREFIX} Channel notification FAILED:`, err);
-        });
-        continue; // immediately poll again
+          }).catch((err) => {
+            console.error(`${PREFIX} Channel notification FAILED:`, err);
+          });
+        }
+        continue;
       }
 
       if (res.status === 204) {
@@ -359,15 +371,14 @@ async function pollForMessages(sessionId: string): Promise<void> {
 }
 
 // ── Channel Permission Relay ─────────────────────────────────────────
-// When Claude Code needs tool approval (including ExitPlanMode/plan mode),
-// it sends a permission_request notification via the channel. We relay it
-// to the bridge service, which shows it in Discord. When the user clicks
-// Approve/Deny, we send the verdict back to Claude Code.
+// Matches the official Discord/Telegram plugin pattern exactly.
+// When Claude needs tool approval, it sends permission_request in parallel
+// with the terminal dialog. We forward to the bridge (Discord thread).
+// User replies "yes abcde" or "no abcde". First response wins.
 
-// Handle permission requests from Claude Code via the channel permission relay.
-// When Claude needs tool approval, it sends the request here in parallel with the
-// terminal dialog. We forward to the bridge (Discord), get the verdict, send it back.
-// First response (terminal or Discord) wins.
+// Handle permission requests via fallback handler (setNotificationHandler causes
+// TypeScript deep type instantiation errors with the MCP SDK's Zod generics).
+// The logic matches the official Discord/Telegram plugins exactly.
 const origFallback = mcp.fallbackNotificationHandler;
 mcp.fallbackNotificationHandler = async (notification) => {
   const method = (notification as { method?: string }).method;
@@ -378,17 +389,16 @@ mcp.fallbackNotificationHandler = async (notification) => {
 
   if (!currentSessionId) return;
 
-  const params = ((notification as { params?: Record<string, unknown> }).params ?? {}) as Record<string, unknown>;
-  const requestId = params.request_id as string;
-  const toolName = params.tool_name as string;
-  const description = params.description as string;
-  const inputPreview = params.input_preview as string;
+  const params = (notification as { params?: Record<string, unknown> }).params ?? {};
+  const requestId = String(params.request_id ?? "");
+  const toolName = String(params.tool_name ?? "unknown");
+  const description = String(params.description ?? "");
+  const inputPreview = String(params.input_preview ?? "");
 
-  console.error(`${PREFIX} Permission relay: ${toolName} [${requestId}] — ${description}`);
+  console.error(`${PREFIX} 🔐 Permission request [${requestId}]: ${toolName} — ${description}`);
 
   try {
-    // Forward to bridge — bridge shows Discord embed and waits for user response
-    const res = await fetch(`${BRIDGE_URL}/api/channel-permission`, {
+    await fetch(`${BRIDGE_URL}/api/channel-permission`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -398,30 +408,28 @@ mcp.fallbackNotificationHandler = async (notification) => {
         description,
         input_preview: inputPreview,
       }),
-      signal: AbortSignal.timeout(600_000), // 10 min
+      signal: AbortSignal.timeout(5000),
     });
-
-    if (res.ok) {
-      const verdict = (await res.json()) as { approved: boolean };
-      console.error(`${PREFIX} Permission verdict [${requestId}]: ${verdict.approved ? "allow" : "deny"}`);
-
-      // Send verdict back to Claude Code
-      mcp.notification({
-        method: "notifications/claude/channel/permission",
-        params: {
-          request_id: requestId,
-          behavior: verdict.approved ? "allow" : "deny",
-        },
-      }).catch((err) => {
-        console.error(`${PREFIX} Permission verdict notification FAILED:`, err);
-      });
-    } else {
-      console.error(`${PREFIX} Bridge permission relay returned ${res.status}`);
-    }
   } catch (err) {
-    console.error(`${PREFIX} Permission relay error:`, err);
+    console.error(`${PREFIX} Failed to relay permission request to bridge:`, err);
   }
 };
+
+/** Send a permission verdict back to Claude Code. Called by the poll loop
+ *  when the bridge signals a button click via /api/permission-verdict. */
+function sendPermissionVerdict(requestId: string, behavior: "allow" | "deny"): void {
+  console.error(`${PREFIX} 🔐 Permission verdict: ${behavior} [${requestId}]`);
+
+  mcp.notification({
+    method: "notifications/claude/channel/permission",
+    params: {
+      request_id: requestId,
+      behavior,
+    },
+  }).catch((err) => {
+    console.error(`${PREFIX} Permission verdict notification FAILED:`, err);
+  });
+}
 
 // ── MCP Tools ────────────────────────────────────────────────────────
 

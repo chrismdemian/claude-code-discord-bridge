@@ -2,8 +2,11 @@ import type { PluginRegistration } from "./types";
 import { LOG_PREFIX } from "./constants";
 
 export interface PendingMessage {
-  message: string;
-  senderId: string;
+  type?: "message" | "permission_verdict";
+  message?: string;
+  senderId?: string;
+  request_id?: string;
+  behavior?: string;
 }
 
 interface PollResolver {
@@ -85,7 +88,7 @@ export class McpRelay {
   ): boolean {
     if (!this.registrations.has(sessionId)) return false;
 
-    const pending: PendingMessage = { message, senderId };
+    const pending: PendingMessage = { type: "message", message, senderId };
 
     // If a poll is waiting, resolve it immediately
     const resolver = this.pollResolvers.get(sessionId);
@@ -97,6 +100,34 @@ export class McpRelay {
     }
 
     // Otherwise queue it
+    const queue = this.messageQueues.get(sessionId) ?? [];
+    queue.push(pending);
+    this.messageQueues.set(sessionId, queue);
+    return true;
+  }
+
+  /** Enqueue a permission verdict for a session (from Discord button click) */
+  enqueuePermissionVerdict(
+    sessionId: string,
+    requestId: string,
+    behavior: "allow" | "deny",
+  ): boolean {
+    if (!this.registrations.has(sessionId)) return false;
+
+    const pending: PendingMessage = {
+      type: "permission_verdict",
+      request_id: requestId,
+      behavior,
+    };
+
+    const resolver = this.pollResolvers.get(sessionId);
+    if (resolver) {
+      clearTimeout(resolver.timer);
+      this.pollResolvers.delete(sessionId);
+      resolver.resolve(pending);
+      return true;
+    }
+
     const queue = this.messageQueues.get(sessionId) ?? [];
     queue.push(pending);
     this.messageQueues.set(sessionId, queue);

@@ -417,38 +417,66 @@ async function main() {
         }
       }
 
-      // Channel permission relay — receives permission requests from the MCP server
-      // and blocks until Discord user approves/denies (up to 10 min)
+      // Channel permission relay — receives permission requests from the MCP server,
+      // posts a Discord embed with Approve/Deny buttons, returns immediately.
+      // When the user clicks a button, the verdict is enqueued via relay.enqueuePermissionVerdict.
       if (url.pathname === "/api/channel-permission" && req.method === "POST") {
         try {
           const body = await req.json();
-          const { sessionId, tool_name, tool_input, description, id } = body as {
+          const { sessionId, request_id, tool_name, description, input_preview } = body as {
             sessionId: string;
-            tool_name?: string;
-            tool_input?: Record<string, unknown>;
-            description?: string;
-            id?: string;
+            request_id: string;
+            tool_name: string;
+            description: string;
+            input_preview: string;
           };
           const session = sessions.get(sessionId);
           if (!session) {
-            return Response.json({ approved: false }, { status: 404 });
+            return Response.json({ ok: false }, { status: 404 });
           }
 
-          console.log(`${LOG_PREFIX} Channel permission request: ${tool_name ?? "unknown"} (session=${sessionId.slice(0, 8)})`);
+          console.log(`${LOG_PREFIX} Channel permission [${request_id}]: ${tool_name} (session=${sessionId.slice(0, 8)})`);
 
-          // Reuse the existing hook-based permission flow
-          const result = await hookReceiver.handleHook("permission-request", {
-            session_id: sessionId,
-            tool_name: tool_name ?? "unknown",
-            tool_input: tool_input ?? {},
-            description: description ?? `Approve ${tool_name ?? "action"}?`,
-          });
+          // Shorten paths in description
+          let shortDesc = description;
+          if (session.cwd) {
+            const cwd = session.cwd.replace(/\\/g, "/") + "/";
+            let idx = shortDesc.toLowerCase().indexOf(cwd.toLowerCase());
+            while (idx !== -1) {
+              shortDesc = shortDesc.slice(0, idx) + shortDesc.slice(idx + cwd.length);
+              idx = shortDesc.toLowerCase().indexOf(cwd.toLowerCase());
+            }
+          }
 
-          const approved = (result as { approved?: boolean })?.approved ?? false;
-          return Response.json({ approved, id });
+          // Post the permission request as a bot message with Approve/Deny buttons
+          // that include the request_id so we can route the verdict back
+          const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder: EB } = await import("discord.js");
+          const embed = new EB()
+            .setTitle(`🔐 ${tool_name}`)
+            .setDescription(`\`\`\`\n${shortDesc}\n\`\`\``)
+            .setColor(0xFFA500)
+            .setFooter({ text: `ID: ${request_id}` });
+
+          const row = new ActionRowBuilder<typeof ButtonBuilder.prototype>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`chan_perm_allow_${sessionId}_${request_id}`)
+              .setLabel("✅ Allow")
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`chan_perm_deny_${sessionId}_${request_id}`)
+              .setLabel("❌ Deny")
+              .setStyle(ButtonStyle.Danger),
+          );
+
+          const channel = await client.channels.fetch(session.forumPostId);
+          if (channel?.isThread()) {
+            await (channel as ThreadChannel).send({ embeds: [embed], components: [row] });
+          }
+
+          return Response.json({ ok: true });
         } catch (err) {
           console.error(`${LOG_PREFIX} channel-permission error:`, err);
-          return Response.json({ approved: false }, { status: 500 });
+          return Response.json({ ok: false }, { status: 500 });
         }
       }
 
@@ -569,6 +597,29 @@ async function main() {
             content: "Only the server owner can interact with Claude Code sessions.",
             ephemeral: true,
           }).catch(() => {});
+          return;
+        }
+
+        // Channel permission relay: Allow/Deny buttons
+        if (customId.startsWith("chan_perm_allow_") || customId.startsWith("chan_perm_deny_")) {
+          const isAllow = customId.startsWith("chan_perm_allow_");
+          const rest = customId.slice(isAllow ? "chan_perm_allow_".length : "chan_perm_deny_".length);
+          const sepIdx = rest.indexOf("_");
+          if (sepIdx > 0) {
+            const sessionId = rest.slice(0, sepIdx);
+            const requestId = rest.slice(sepIdx + 1);
+
+            relay.enqueuePermissionVerdict(sessionId, requestId, isAllow ? "allow" : "deny");
+
+            const label = isAllow ? "✅ Allowed" : "❌ Denied";
+            await interaction.update({
+              content: `${label} \`${requestId}\``,
+              embeds: [],
+              components: [],
+            });
+          } else {
+            await interaction.deferUpdate().catch(() => {});
+          }
           return;
         }
 
