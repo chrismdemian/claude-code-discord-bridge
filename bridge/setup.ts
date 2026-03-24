@@ -5,7 +5,8 @@
  *
  * Logs in the bot, auto-brands it, creates the server structure
  * (category + channels + webhooks), saves config, posts a welcome
- * message, and prints an invite link. Does NOT start the bridge service.
+ * message, prints an invite link, and optionally starts the bridge
+ * service via pm2.
  */
 
 import * as path from "node:path";
@@ -28,7 +29,46 @@ const pkgPath = path.resolve(import.meta.dir, "..", "package.json");
 const pkg = await Bun.file(pkgPath).json().catch(() => ({ version: "0.1.0" }));
 const VERSION: string = pkg.version;
 
+/** Required bot permissions bitmask (Send Messages, Manage Webhooks, threads, embeds, etc.) */
+const REQUIRED_PERMISSIONS = "326954772544";
+
+/** Build an OAuth2 bot invite URL with the correct permissions and scopes */
+function buildOAuth2Url(clientId: string): string {
+  return (
+    `https://discord.com/api/oauth2/authorize` +
+    `?client_id=${clientId}` +
+    `&permissions=${REQUIRED_PERMISSIONS}` +
+    `&scope=bot%20applications.commands`
+  );
+}
+
+/** Prompt the user with a Y/n question and return whether they said yes */
+async function promptYesNo(question: string): Promise<boolean> {
+  const rl = await import("node:readline");
+  const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise<string>((resolve) => {
+    iface.question(question, resolve);
+  });
+  iface.close();
+  return !answer.trim() || answer.trim().toLowerCase().startsWith("y");
+}
+
 async function main() {
+  // ── Step 0: Prerequisites ──────────────────────────────────────────
+  const pm2Check = Bun.spawnSync(["npx", "pm2", "--version"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (pm2Check.exitCode !== 0) {
+    console.error(
+      `${PREFIX} pm2 is required but was not found.\n` +
+        `  Install it with: npm install -g pm2\n` +
+        `  Then re-run setup.`,
+    );
+    process.exit(1);
+  }
+  console.log(`${PREFIX} Found pm2 ${pm2Check.stdout.toString().trim()}`);
+
   // ── Step 1: Load environment ────────────────────────────────────────
   const dataPath = getPluginDataPath();
   const envPath = path.join(dataPath, ".env");
@@ -132,7 +172,7 @@ async function main() {
         );
         process.exit(1);
       } else {
-        // guilds.size === 0 — create a new server
+        // guilds.size === 0 — try to create a new server
         console.log(`${PREFIX} No guilds found — creating "Terminal" server...`);
         try {
           const newGuild = await client.guilds.create({ name: "Terminal" });
@@ -141,11 +181,16 @@ async function main() {
             `${PREFIX} Created guild: "Terminal" (${guildId})`,
           );
         } catch (err) {
+          const oauth2Url = buildOAuth2Url(client.user!.id);
           console.error(
-            `${PREFIX} Failed to create guild. Create a Discord server manually, invite the bot, ` +
-              `and add DISCORD_GUILD_ID to your .env file.`,
+            `${PREFIX} Could not create guild automatically.\n\n` +
+              `  Open this link to add the bot to your server:\n` +
+              `  ${oauth2Url}\n\n` +
+              `  Then re-run setup.\n` +
+              `  If you need a server, create one in Discord first, then use the link above.`,
           );
-          throw err;
+          client.destroy();
+          process.exit(1);
         }
       }
 
@@ -247,16 +292,9 @@ async function main() {
     );
     console.log("");
 
-    const rl = await import("node:readline");
-    const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await new Promise<string>((resolve) => {
-      iface.question("  Add a 'claude-dc' shell alias? (Y/n) ", resolve);
-    });
-    iface.close();
+    const shouldAddAlias = await promptYesNo("  Add a 'claude-dc' shell alias? (Y/n) ");
 
-    const shouldAdd = !answer.trim() || answer.trim().toLowerCase().startsWith("y");
-
-    if (shouldAdd) {
+    if (shouldAddAlias) {
       try {
         if (isWindows) {
           // PowerShell profile
@@ -307,7 +345,92 @@ async function main() {
       console.log(`    claude ${channelsFlag}`);
     }
 
-    // ── Step 10: Summary ────────────────────────────────────────────
+    // ── Step 10: Start bridge service ────────────────────────────────
+    const bridgeIndexPath = path.resolve(import.meta.dir, "index.ts");
+    const bridgePort = process.env.BRIDGE_PORT || "7676";
+    let bridgeStarted = false;
+
+    console.log("");
+    const shouldStartBridge = await promptYesNo("  Start the bridge service now? (Y/n) ");
+
+    if (shouldStartBridge) {
+      // Stop any existing instance first (idempotent)
+      Bun.spawnSync(["npx", "pm2", "delete", "discord-bridge"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+
+      console.log(`${PREFIX} Starting bridge service via pm2...`);
+      const startResult = Bun.spawnSync(
+        ["npx", "pm2", "start", bridgeIndexPath, "--name", "discord-bridge", "--interpreter", "bun"],
+        { stdout: "inherit", stderr: "inherit" },
+      );
+
+      if (startResult.exitCode !== 0) {
+        console.error(`${PREFIX} pm2 start failed. You can start it manually:`);
+        console.error(`  npx pm2 start ${bridgeIndexPath} --name discord-bridge --interpreter bun`);
+      } else {
+        // Save the pm2 process list
+        Bun.spawnSync(["npx", "pm2", "save"], {
+          stdout: "inherit",
+          stderr: "inherit",
+        });
+
+        // Attempt pm2 startup (auto-start on boot)
+        if (!isWindows) {
+          console.log(`${PREFIX} Configuring auto-start on boot...`);
+          const startupResult = Bun.spawnSync(["npx", "pm2", "startup"], {
+            stdout: "inherit",
+            stderr: "inherit",
+          });
+          if (startupResult.exitCode !== 0) {
+            console.warn(
+              `${PREFIX} pm2 startup may need sudo. Run the command it suggests above.`,
+            );
+          }
+        } else {
+          console.log(
+            `${PREFIX} On Windows, use 'pm2-windows-startup' for auto-start on boot.`,
+          );
+        }
+
+        // Health check with retries
+        console.log(`${PREFIX} Verifying bridge service health...`);
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await Bun.sleep(2000);
+          try {
+            const resp = await fetch(`http://localhost:${bridgePort}/health`, {
+              signal: AbortSignal.timeout(3000),
+            });
+            if (resp.ok) {
+              const data = await resp.json() as { status: string };
+              if (data.status === "ok") {
+                bridgeStarted = true;
+                console.log(`${PREFIX} ✅ Bridge service is running and healthy`);
+                break;
+              }
+            }
+          } catch {
+            // Not ready yet, retry
+          }
+        }
+
+        if (!bridgeStarted) {
+          console.warn(
+            `${PREFIX} Bridge service did not respond to health check.\n` +
+              `  Check logs: npx pm2 logs discord-bridge`,
+          );
+        }
+      }
+    } else {
+      console.log(`\n  To start the bridge service later:`);
+      console.log(`    npx pm2 start ${bridgeIndexPath} --name discord-bridge --interpreter bun`);
+      console.log(`    npx pm2 save && npx pm2 startup`);
+    }
+
+    // ── Step 11: Summary ────────────────────────────────────────────
+    const oauth2Url = buildOAuth2Url(client.user!.id);
+
     console.log("");
     console.log("═══════════════════════════════════════════════════════");
     console.log("  Discord Bridge Setup Complete!");
@@ -324,14 +447,20 @@ async function main() {
     console.log(`  Env:        ${envPath}`);
     console.log("");
     console.log(`  Invite:     ${inviteUrl}`);
+    console.log(`  Bot Invite: ${oauth2Url}`);
+    console.log(`              (use to add bot to additional servers)`);
     console.log("");
     console.log("  Next steps:");
     console.log("  1. Open the invite link on your phone to join the server");
-    console.log("  2. Start the bridge service:");
-    console.log("     npx pm2 start bridge/index.ts --name discord-bridge --interpreter bun");
-    console.log("     npx pm2 save && npx pm2 startup");
-    console.log("  3. Verify: curl http://localhost:7676/health");
-    console.log("  4. Start Claude Code with:  claude-dc");
+    if (bridgeStarted) {
+      console.log("  2. Start Claude Code with:  claude-dc");
+    } else {
+      console.log("  2. Start the bridge service:");
+      console.log(`     npx pm2 start ${bridgeIndexPath} --name discord-bridge --interpreter bun`);
+      console.log("     npx pm2 save && npx pm2 startup");
+      console.log("  3. Verify: curl http://localhost:7676/health");
+      console.log("  4. Start Claude Code with:  claude-dc");
+    }
     console.log("");
     console.log("═══════════════════════════════════════════════════════");
 
