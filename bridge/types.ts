@@ -6,6 +6,9 @@ export interface FormattedMessage {
   content?: string;
   embeds?: EmbedBuilder[];
   files?: AttachmentBuilder[];
+  /** If set, the content should be collapsible with a Show/Hide button.
+   *  `collapsedText` is shown initially; `content` is the expanded version. */
+  collapsedText?: string;
 }
 
 /** Session state tracked by the bridge */

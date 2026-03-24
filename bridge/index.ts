@@ -45,6 +45,9 @@ import {
   Events,
   EmbedBuilder,
   MessageFlags,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   type Client,
   type ThreadChannel,
 } from "discord.js";
@@ -71,6 +74,9 @@ import { parseProjectName, shortenPath } from "./formatters/utils";
 const sessions = new Map<string, BridgeSession>();
 const pendingSessionIds = new Set<string>();
 const tailers = new Map<string, TranscriptTailer>();
+
+/** Store expanded content for collapsible messages (keyed by message ID) */
+const collapsibleContent = new Map<string, { expanded: string; collapsed: string }>();
 const typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const typingGeneration = new Map<string, number>();
 const relay = new McpRelay();
@@ -566,6 +572,26 @@ async function main() {
           return;
         }
 
+        // Collapsible content: Show/Hide toggle
+        if (customId === "expand_content" || customId === "collapse_content") {
+          const stored = collapsibleContent.get(interaction.message.id);
+          if (!stored) {
+            await interaction.deferUpdate().catch(() => {});
+            return;
+          }
+
+          const isExpanding = customId === "expand_content";
+          const newContent = isExpanding ? `${stored.collapsed}\n${stored.expanded}` : stored.collapsed;
+          const newButton = new ButtonBuilder()
+            .setCustomId(isExpanding ? "collapse_content" : "expand_content")
+            .setLabel(isExpanding ? "▴ Hide" : "▸ Show")
+            .setStyle(ButtonStyle.Secondary);
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(newButton);
+
+          await interaction.update({ content: newContent, components: [row] });
+          return;
+        }
+
         // Permission: Approve
         if (customId.startsWith("perm_approve_")) {
           const sessionId = customId.slice("perm_approve_".length);
@@ -852,6 +878,40 @@ async function updateSessionEmbed(
 // ── Typing indicator ──────────────────────────────────────────────────
 
 /** Start sending typing indicators on a 9-second interval */
+/** Send a collapsible message via bot client (not webhook) with Show/Hide button */
+async function sendCollapsible(
+  client: Client,
+  threadId: string,
+  collapsedText: string,
+  expandedContent: string,
+): Promise<void> {
+  try {
+    const channel = await client.channels.fetch(threadId);
+    if (!channel?.isThread()) return;
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("expand_content")
+        .setLabel("▸ Show")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    const msg = await (channel as ThreadChannel).send({
+      content: collapsedText,
+      components: [row],
+      flags: [MessageFlags.SuppressNotifications],
+    });
+
+    // Store the content for later toggle
+    collapsibleContent.set(msg.id, {
+      expanded: expandedContent,
+      collapsed: collapsedText,
+    });
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Failed to send collapsible message:`, err);
+  }
+}
+
 async function startTypingIndicator(
   client: Client,
   session: BridgeSession,
@@ -1278,28 +1338,43 @@ function wireTranscriptEvents(
             const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
               const messages = Array.isArray(formatted) ? formatted : [formatted];
-
-              // Try to edit result inline into the tool call header message
-              // when it's a single short text result (no embeds/files)
-              const headerMsgId = resultBlock.tool_use_id
-                ? toolCallMessageIds.get(resultBlock.tool_use_id)
-                : undefined;
               const singleMsg = messages.length === 1 ? messages[0] : null;
-              const canEditInline = headerMsgId
-                && singleMsg?.content
-                && !singleMsg.embeds?.length
-                && !singleMsg.files?.length
-                && singleMsg.content.length < 800;
 
-              if (canEditInline && headerMsgId) {
-                // Find the original tool call header content
-                const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
-                const combined = `${originalHeader}\n${singleMsg!.content}`;
-                await sender.editMessage("claude", headerMsgId, threadId, combined);
-                toolCallMessageIds.delete(resultBlock.tool_use_id!);
+              // Collapsible content (e.g., Read results) — send via bot with Show/Hide button
+              if (singleMsg?.collapsedText && singleMsg.content) {
+                // Edit the tool call header to show the collapsed text
+                const headerMsgId = resultBlock.tool_use_id
+                  ? toolCallMessageIds.get(resultBlock.tool_use_id)
+                  : undefined;
+                if (headerMsgId) {
+                  const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
+                  const shortHeader = shortenPathsInText(originalHeader, session.cwd);
+                  await sender.editMessage("claude", headerMsgId, threadId,
+                    `${shortHeader} — ${singleMsg.collapsedText}`);
+                  toolCallMessageIds.delete(resultBlock.tool_use_id!);
+                }
+                await sendCollapsible(client, threadId, singleMsg.collapsedText, singleMsg.content);
               } else {
-                for (const fmtMsg of messages) {
-                  await sendFormatted(sender, threadId, fmtMsg);
+                // Try to edit result inline into the tool call header message
+                // when it's a single short text result (no embeds/files)
+                const headerMsgId = resultBlock.tool_use_id
+                  ? toolCallMessageIds.get(resultBlock.tool_use_id)
+                  : undefined;
+                const canEditInline = headerMsgId
+                  && singleMsg?.content
+                  && !singleMsg.embeds?.length
+                  && !singleMsg.files?.length
+                  && singleMsg.content.length < 800;
+
+                if (canEditInline && headerMsgId) {
+                  const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
+                  const combined = `${shortenPathsInText(originalHeader, session.cwd)}\n${singleMsg!.content}`;
+                  await sender.editMessage("claude", headerMsgId, threadId, combined);
+                  toolCallMessageIds.delete(resultBlock.tool_use_id!);
+                } else {
+                  for (const fmtMsg of messages) {
+                    await sendFormatted(sender, threadId, fmtMsg);
+                  }
                 }
               }
             }

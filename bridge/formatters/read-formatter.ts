@@ -24,21 +24,24 @@ export function formatReadResult(
   text = text.replace(/^ *\d+→/gm, "");
 
   const filePath = String(toolUse.input.file_path ?? "?");
+  const fileName = filePath.split(/[/\\]/).pop() ?? "file.txt";
   const lang = inferLanguage(filePath);
+  const lineCount = text.split("\n").length;
 
   // Escape triple backticks
   const escaped = text.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\``;
 
-  // Fits in one message — no header needed (call header already shown)
+  // If it fits in one message, make it collapsible (show/hide button)
   if (codeBlock.length <= MAX_CONTENT_LENGTH) {
-    return { webhook: "claude", content: codeBlock };
+    return {
+      webhook: "claude",
+      content: codeBlock,
+      collapsedText: `*${lineCount} lines — \`${fileName}\`*`,
+    };
   }
 
-  // Too long: attach full file with a brief summary (Discord auto-previews text files)
-  const lineCount = text.split("\n").length;
-  const fileName = filePath.split(/[/\\]/).pop() ?? "file.txt";
-
+  // Too long for inline even when expanded — attach as file
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: fileName,
   });
