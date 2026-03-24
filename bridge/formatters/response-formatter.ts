@@ -10,12 +10,67 @@ export interface ResponseMeta {
 }
 
 /** Format Claude's text response with optional metadata footer */
+/** Convert markdown tables to code block format for Discord mobile readability */
+function convertTables(text: string): string {
+  const lines = text.split("\n");
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    // Detect table: line with |, followed by separator line with |---|
+    if (
+      lines[i]?.includes("|") &&
+      lines[i + 1]?.match(/^\s*\|[\s:|-]+\|\s*$/)
+    ) {
+      // Parse table rows
+      const tableRows: string[][] = [];
+      let j = i;
+      while (j < lines.length && lines[j]?.includes("|")) {
+        // Skip separator line
+        if (lines[j].match(/^\s*\|[\s:|-]+\|\s*$/)) { j++; continue; }
+        const cells = lines[j].split("|").map(c => c.trim()).filter(c => c !== "");
+        if (cells.length > 0) tableRows.push(cells);
+        j++;
+      }
+
+      if (tableRows.length > 0) {
+        // Calculate column widths
+        const colCount = Math.max(...tableRows.map(r => r.length));
+        const widths = Array.from({ length: colCount }, (_, c) =>
+          Math.max(...tableRows.map(r => (r[c] ?? "").length), 3)
+        );
+
+        // Render as code block
+        result.push("```");
+        for (let r = 0; r < tableRows.length; r++) {
+          const row = tableRows[r];
+          const padded = widths.map((w, c) => (row[c] ?? "").padEnd(w));
+          result.push(padded.join("  "));
+          // Add separator after header
+          if (r === 0) {
+            result.push(widths.map(w => "─".repeat(w)).join("──"));
+          }
+        }
+        result.push("```");
+      }
+
+      i = j;
+    } else {
+      result.push(lines[i]);
+      i++;
+    }
+  }
+
+  return result.join("\n");
+}
+
 export function formatAssistantText(
   text: string,
   session: BridgeSession,
   meta?: ResponseMeta,
 ): FormattedMessage {
-  let content = text;
+  // Convert markdown tables to monospaced code blocks for Discord mobile
+  let content = convertTables(text);
 
   if (meta?.model || meta?.usage) {
     const parts: string[] = [];

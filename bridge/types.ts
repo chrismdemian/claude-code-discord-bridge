@@ -27,6 +27,8 @@ export interface BridgeSession {
   outputTokens: number;
   turnCount: number;
   lastActivity: number;
+  /** Where the last user input came from — "discord" or "terminal" */
+  lastInputSource: "discord" | "terminal";
   transcriptPath: string;
   transcriptOffset: number;
   // Plan mode state

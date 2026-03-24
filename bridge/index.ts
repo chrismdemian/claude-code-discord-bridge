@@ -163,6 +163,7 @@ async function main() {
         outputTokens: 0,
         turnCount: 0,
         lastActivity: Date.now(),
+        lastInputSource: "terminal",
         transcriptPath: sessionInfo.transcriptPath,
         transcriptOffset: 0,
         planMode: false,
@@ -469,7 +470,12 @@ async function main() {
 
           const channel = await client.channels.fetch(session.forumPostId);
           if (channel?.isThread()) {
-            await (channel as ThreadChannel).send({ embeds: [embed], components: [row] });
+            const opts: Record<string, unknown> = { embeds: [embed], components: [row] };
+            // Suppress notifications if the user is working from the terminal
+            if (session.lastInputSource === "terminal") {
+              opts.flags = [MessageFlags.SuppressNotifications];
+            }
+            await (channel as ThreadChannel).send(opts as Parameters<ThreadChannel["send"]>[0]);
           }
 
           return Response.json({ ok: true });
@@ -521,6 +527,7 @@ async function main() {
     if (message.content.trim()) {
       if (relay.hasPlugin(session.sessionId)) {
         relay.enqueueMessage(session.sessionId, message.content, message.author.id);
+        session.lastInputSource = "discord";
         await message.react("✅").catch(() => {});
         startTypingIndicator(client, session);
       } else if (message.attachments.size === 0) {
@@ -1330,6 +1337,7 @@ function wireTranscriptEvents(
         await sendFormatted(sender, threadId, formatted);
         session.turnCount++;
         session.lastActivity = Date.now();
+        session.lastInputSource = "terminal";
 
         // Start typing indicator while Claude is working
         startTypingIndicator(client, session);
