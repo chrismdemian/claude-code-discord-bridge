@@ -70,19 +70,42 @@ export function countLines(text: string): number {
 
 /**
  * Extract a human-readable project name from a working directory path.
- * Handles worktree paths like:
- *   .../termwatch--claude-worktrees-velvety-jingling-moonbeam → termwatch/velvety-jingling-moonbeam
+ * Handles:
+ *   .../termwatch--claude-worktrees-velvety-jingling-moonbeam → termwatch
+ *   .../.claude/worktrees/mellow-coalescing-bear → parent project name
+ *   C:\Users\chris → home (not "chris")
+ *   C:\Users\chris\Projects → Projects (generic)
  */
 export function parseProjectName(cwd: string): string {
+  const normalized = cwd.replace(/\\/g, "/");
+
+  // Worktree variant 1: encoded path with --claude-worktrees-
   const worktreeMarker = "--claude-worktrees-";
-  const idx = cwd.indexOf(worktreeMarker);
+  const idx = normalized.indexOf(worktreeMarker);
   if (idx !== -1) {
-    const parentPath = cwd.slice(0, idx);
-    const parentName = path.basename(parentPath);
-    const worktreeName = cwd.slice(idx + worktreeMarker.length);
-    // worktreeName may contain path separators if there are subdirs — take just the name part
-    const cleanName = worktreeName.split(/[/\\]/)[0];
-    return `${parentName}/${cleanName}`;
+    const parentPath = normalized.slice(0, idx);
+    return path.basename(parentPath);
   }
-  return path.basename(cwd);
+
+  // Worktree variant 2: .claude/worktrees/<name> inside a project
+  const cwMatch = normalized.match(/(.+?)\/.claude\/worktrees\/([^/]+)/);
+  if (cwMatch) {
+    return path.basename(cwMatch[1]);
+  }
+
+  const basename = path.basename(normalized);
+  const parent = path.basename(path.dirname(normalized));
+
+  // Unhelpful names: user's home dir, generic folders
+  const unhelpful = new Set(["users", "home", "projects", "documents", "desktop", "downloads"]);
+  if (unhelpful.has(basename.toLowerCase())) {
+    return `${basename} (general)`;
+  }
+
+  // If parent is "Users" (home dir), show as "home"
+  if (parent.toLowerCase() === "users") {
+    return `${basename} (home)`;
+  }
+
+  return basename;
 }
