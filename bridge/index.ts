@@ -1035,8 +1035,12 @@ async function sendFormatted(
   return undefined;
 }
 
-/** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates */
-const BRIDGE_MCP_TOOLS = new Set(["send_to_discord", "react_in_discord"]);
+/** MCP tools defined in server.ts — skip their transcript entries to avoid duplicates.
+ *  Tool names in transcript may have MCP prefix like "mcp__plugin_discord-bridge_discord-bridge__send_to_discord" */
+const BRIDGE_MCP_TOOL_NAMES = ["send_to_discord", "react_in_discord"];
+function isBridgeMcpTool(name: string): boolean {
+  return BRIDGE_MCP_TOOL_NAMES.some(t => name === t || name.endsWith(`__${t}`));
+}
 
 /** Internal/system tools that are not user-facing — skip both call headers and results */
 const INTERNAL_TOOLS = new Set([
@@ -1269,7 +1273,7 @@ function wireTranscriptEvents(
       for (const block of toolBlocks) {
         toolUseBlocks.set(block.id, block);
         // Skip bridge MCP tools — they already sent to Discord directly
-        if (BRIDGE_MCP_TOOLS.has(block.name)) continue;
+        if (isBridgeMcpTool(block.name)) continue;
         // Skip internal/system tools — not user-facing
         if (INTERNAL_TOOLS.has(block.name)) continue;
         // Suppress chunked Read calls (offset > 0) — only show the first chunk
@@ -1361,7 +1365,7 @@ function wireTranscriptEvents(
             const toolName = toolUse?.name ?? "unknown";
 
             // Skip bridge MCP tools — they already sent to Discord directly
-            if (BRIDGE_MCP_TOOLS.has(toolName)) {
+            if (isBridgeMcpTool(toolName)) {
               if (resultBlock.tool_use_id) toolUseBlocks.delete(resultBlock.tool_use_id);
               continue;
             }
