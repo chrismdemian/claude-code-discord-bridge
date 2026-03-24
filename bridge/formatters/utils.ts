@@ -62,12 +62,6 @@ export function wrapCodeBlock(text: string, lang: string = ""): string {
   return `\`\`\`${lang}\n${escaped}\n\`\`\``;
 }
 
-/** Count the number of lines in text */
-export function countLines(text: string): number {
-  if (!text) return 0;
-  return text.split("\n").length;
-}
-
 /**
  * Extract a human-readable project name from a working directory path.
  * Handles:

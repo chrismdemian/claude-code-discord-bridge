@@ -45,6 +45,7 @@ import {
   EmbedBuilder,
   MessageFlags,
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   type Client,
@@ -68,14 +69,15 @@ import {
   formatSystemEvent,
 } from "./formatters/response-formatter";
 import { calculateCost } from "./formatters/cost";
-import { parseProjectName, shortenPath } from "./formatters/utils";
+import { parseProjectName } from "./formatters/utils";
 
 const sessions = new Map<string, BridgeSession>();
 const pendingSessionIds = new Set<string>();
 const tailers = new Map<string, TranscriptTailer>();
 
-/** Store expanded content for collapsible messages (keyed by message ID) */
-const collapsibleContent = new Map<string, { expanded: string; collapsed: string }>();
+/** Store expanded content for collapsible messages (keyed by message ID, evicted after 1h) */
+const collapsibleContent = new Map<string, { expanded: string; collapsed: string; createdAt: number }>();
+const COLLAPSIBLE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const typingGeneration = new Map<string, number>();
 const relay = new McpRelay();
@@ -321,7 +323,14 @@ async function main() {
       if (url.pathname.startsWith("/hooks/") && req.method === "POST") {
         try {
           const slug = url.pathname.slice("/hooks/".length);
+          // Basic validation: slug must be alphanumeric+hyphens, body must be an object
+          if (!/^[a-z0-9-]+$/.test(slug)) {
+            return new Response("Invalid slug", { status: 400 });
+          }
           const body = await req.json();
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return new Response("Body must be a JSON object", { status: 400 });
+          }
           const result = await hookReceiver.handleHook(slug, body);
           return Response.json(result ?? { ok: true });
         } catch (err) {
@@ -349,7 +358,6 @@ async function main() {
             return new Response("Session not found", { status: 404 });
           }
 
-          const { AttachmentBuilder } = await import("discord.js");
           const attachments = [];
           for (const filePath of files.slice(0, 10)) {
             try {
@@ -450,14 +458,13 @@ async function main() {
 
           // Post the permission request as a bot message with Approve/Deny buttons
           // that include the request_id so we can route the verdict back
-          const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder: EB } = await import("discord.js");
-          const embed = new EB()
+          const embed = new EmbedBuilder()
             .setTitle(`🔐 ${tool_name}`)
             .setDescription(`\`\`\`\n${shortDesc}\n\`\`\``)
-            .setColor(0xFFA500)
+            .setColor(COLORS.YELLOW)
             .setFooter({ text: `ID: ${request_id}` });
 
-          const row = new ActionRowBuilder<typeof ButtonBuilder.prototype>().addComponents(
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
               .setCustomId(`chan_perm_allow_${sessionId}_${request_id}`)
               .setLabel("✅ Allow")
@@ -948,11 +955,17 @@ async function sendCollapsible(
       flags: [MessageFlags.SuppressNotifications],
     });
 
-    // Store the content for later toggle
+    // Store the content for later toggle, evict stale entries
     collapsibleContent.set(msg.id, {
       expanded: expandedContent,
       collapsed: collapsedText,
+      createdAt: Date.now(),
     });
+    // Evict entries older than TTL
+    const now = Date.now();
+    for (const [id, entry] of collapsibleContent) {
+      if (now - entry.createdAt > COLLAPSIBLE_TTL_MS) collapsibleContent.delete(id);
+    }
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to send collapsible message:`, err);
   }

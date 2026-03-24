@@ -6,11 +6,8 @@ import type {
   PermissionRequestHook,
   SessionEndHook,
   StopFailureHook,
-  PostToolUseFailureHook,
   PreCompactHook,
   PostCompactHook,
-  SubagentStartHook,
-  SubagentStopHook,
   NotificationHook,
   TaskCompletedHook,
   TeammateIdleHook,
@@ -21,10 +18,9 @@ import type {
 import { COLORS, LOG_PREFIX } from "./constants";
 import { truncate, formatDuration } from "./formatters/utils";
 import {
-  buildPermissionEmbed,
   buildTimeoutEmbed,
 } from "./interactions/permission-handler";
-import { trackForAwaySummary, classifyNotification, NotificationTier } from "./notifications";
+import { trackForAwaySummary, classifyNotification, NotificationTier, ALERT_FAILURE_TYPES } from "./notifications";
 import type { AwayTracker } from "./away-tracker";
 
 /** Map URL slugs from hooks.json to canonical hook type names */
@@ -48,14 +44,6 @@ const SLUG_TO_HOOK: Record<string, string> = {
   "worktree-create": "WorktreeCreate",
   "worktree-remove": "WorktreeRemove",
 };
-
-/** High-severity failure types that warrant an @mention in #alerts */
-const ALERT_FAILURE_TYPES = new Set([
-  "rate_limit",
-  "authentication_failed",
-  "billing_error",
-  "server_error",
-]);
 
 /** State for a pending permission request awaiting Discord button click */
 export interface PermissionResult {
@@ -315,31 +303,6 @@ export class HookReceiver {
     return { ok: true };
   }
 
-  private async handlePostToolUseFailure(
-    payload: PostToolUseFailureHook,
-  ): Promise<{ ok: true }> {
-    const session = this.sessions.get(payload.session_id);
-    if (!session) return { ok: true };
-
-    const toolName = payload.tool_name ?? "Unknown";
-    const embed = new EmbedBuilder()
-      .setTitle(`🔴 Tool Failed: ${toolName}`)
-      .setColor(COLORS.RED)
-      .setTimestamp();
-
-    if (payload.error) {
-      embed.setDescription(
-        `\`\`\`\n${truncate(payload.error, 1800)}\n\`\`\``,
-      );
-    }
-
-    await this.sender.sendEmbed("claude", session.forumPostId, embed);
-
-    trackForAwaySummary("PostToolUseFailure", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
-
-    return { ok: true };
-  }
-
   private async handlePreCompact(
     payload: PreCompactHook,
   ): Promise<{ ok: true }> {
@@ -382,37 +345,6 @@ export class HookReceiver {
 
     trackForAwaySummary("PostCompact", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
 
-    return { ok: true };
-  }
-
-  private async handleSubagentStart(
-    payload: SubagentStartHook,
-  ): Promise<{ ok: true }> {
-    const session = this.sessions.get(payload.session_id);
-    if (!session) return { ok: true };
-
-    const agentType = payload.agent_type ?? "agent";
-    let text = `🤖 Agent spawned: **${agentType}**`;
-    if (payload.prompt) {
-      text += `\n> ${truncate(payload.prompt, 1500)}`;
-    }
-
-    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
-    return { ok: true };
-  }
-
-  private async handleSubagentStop(
-    payload: SubagentStopHook,
-  ): Promise<{ ok: true }> {
-    const session = this.sessions.get(payload.session_id);
-    if (!session) return { ok: true };
-
-    let text = "🤖 Agent finished";
-    if (payload.result) {
-      text += `\n> ${truncate(payload.result, 1500)}`;
-    }
-
-    await this.sender.sendAsWebhook("claude", session.forumPostId, text);
     return { ok: true };
   }
 
@@ -589,18 +521,3 @@ function formatFailureType(type: string): string {
     .join(" ");
 }
 
-function formatPermissionDescription(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-): string {
-  if (toolName === "Bash" && toolInput.command) {
-    return String(toolInput.command);
-  }
-  if (toolName === "Write" && toolInput.file_path) {
-    return `Write to ${toolInput.file_path}`;
-  }
-  if (toolName === "Edit" && toolInput.file_path) {
-    return `Edit ${toolInput.file_path}`;
-  }
-  return `${toolName}: ${JSON.stringify(toolInput).slice(0, 300)}`;
-}

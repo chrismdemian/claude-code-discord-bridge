@@ -79,7 +79,13 @@ export async function handleFileAttachment(
       }
 
       const filename = sanitizeFilename(attachment.name ?? "unnamed");
-      const savePath = path.join(session.cwd, filename);
+      const uploadsDir = path.join(session.cwd, ".discord-uploads");
+      // Ensure directory exists and is git-ignored
+      const ignoreFile = path.join(uploadsDir, ".gitignore");
+      if (!(await Bun.file(ignoreFile).exists())) {
+        await Bun.write(ignoreFile, "*\n!.gitignore\n");
+      }
+      const savePath = path.join(uploadsDir, filename);
 
       // Download and save the file
       const response = await fetch(attachment.url);

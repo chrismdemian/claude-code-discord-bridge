@@ -4,7 +4,18 @@
   "description": "Control Claude Code from your phone via Discord",
   "license": "Apache-2.0",
   "type": "module",
-  "bin": "./server.ts",
+  "keywords": ["claude", "claude-code", "discord", "mcp", "plugin", "bridge", "mobile", "remote"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chrismdemian/claude-code-discord-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chrismdemian/claude-code-discord-bridge/issues"
+  },
+  "homepage": "https://github.com/chrismdemian/claude-code-discord-bridge",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "scripts": {
     "start": "bun server.ts",
     "bridge": "bun run bridge/index.ts",
@@ -19,8 +30,7 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "discord.js": "^14.16.0",
     "chokidar": "^4.0.0",
-    "dotenv": "^16.4.0",
-    "zod": "^3.25.0"
+    "dotenv": "^16.4.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

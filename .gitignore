@@ -12,7 +12,6 @@ dist/
 *.js
 *.d.ts
 *.js.map
-!jest.config.js
 
 # Plugin data (local state)
 .claude/
@@ -37,6 +36,9 @@ npm-debug.log*
 research-*.md
 PRODUCT.md
 CLAUDE.md
+
+# Screenshots (visual verification)
+.playwright-mcp/
 
 # Codex local instruction files
 AGENTS.md

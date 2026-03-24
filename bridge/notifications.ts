@@ -11,7 +11,7 @@ export enum NotificationTier {
 }
 
 /** High-severity failure types that warrant PING tier */
-const ALERT_FAILURE_TYPES = new Set([
+export const ALERT_FAILURE_TYPES = new Set([
   "rate_limit",
   "authentication_failed",
   "billing_error",
