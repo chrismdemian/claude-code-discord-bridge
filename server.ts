@@ -364,14 +364,14 @@ async function pollForMessages(sessionId: string): Promise<void> {
 // to the bridge service, which shows it in Discord. When the user clicks
 // Approve/Deny, we send the verdict back to Claude Code.
 
-// Use fallback handler to catch channel permission requests from Claude Code.
-// The MCP SDK's setNotificationHandler requires exact Zod schemas that cause
-// type recursion issues, so we use the fallback for experimental notifications.
+// Handle permission requests from Claude Code via the channel permission relay.
+// When Claude needs tool approval, it sends the request here in parallel with the
+// terminal dialog. We forward to the bridge (Discord), get the verdict, send it back.
+// First response (terminal or Discord) wins.
 const origFallback = mcp.fallbackNotificationHandler;
 mcp.fallbackNotificationHandler = async (notification) => {
   const method = (notification as { method?: string }).method;
   if (method !== "notifications/claude/channel/permission_request") {
-    // Not ours — delegate to original fallback if one exists
     if (origFallback) return origFallback(notification);
     return;
   }
@@ -379,28 +379,38 @@ mcp.fallbackNotificationHandler = async (notification) => {
   if (!currentSessionId) return;
 
   const params = ((notification as { params?: Record<string, unknown> }).params ?? {}) as Record<string, unknown>;
-  console.error(`${PREFIX} Permission request via channel: ${JSON.stringify(params).slice(0, 200)}`);
+  const requestId = params.request_id as string;
+  const toolName = params.tool_name as string;
+  const description = params.description as string;
+  const inputPreview = params.input_preview as string;
+
+  console.error(`${PREFIX} Permission relay: ${toolName} [${requestId}] — ${description}`);
 
   try {
+    // Forward to bridge — bridge shows Discord embed and waits for user response
     const res = await fetch(`${BRIDGE_URL}/api/channel-permission`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: currentSessionId,
-        ...params,
+        request_id: requestId,
+        tool_name: toolName,
+        description,
+        input_preview: inputPreview,
       }),
-      signal: AbortSignal.timeout(600_000),
+      signal: AbortSignal.timeout(600_000), // 10 min
     });
 
     if (res.ok) {
       const verdict = (await res.json()) as { approved: boolean };
-      console.error(`${PREFIX} Permission verdict: ${verdict.approved ? "approved" : "denied"}`);
+      console.error(`${PREFIX} Permission verdict [${requestId}]: ${verdict.approved ? "allow" : "deny"}`);
 
+      // Send verdict back to Claude Code
       mcp.notification({
         method: "notifications/claude/channel/permission",
         params: {
-          id: params.id,
-          approved: verdict.approved,
+          request_id: requestId,
+          behavior: verdict.approved ? "allow" : "deny",
         },
       }).catch((err) => {
         console.error(`${PREFIX} Permission verdict notification FAILED:`, err);
