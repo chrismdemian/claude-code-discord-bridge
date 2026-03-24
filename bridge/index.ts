@@ -783,8 +783,7 @@ async function main() {
           return;
         }
 
-        // Plan mode buttons (check plan_clearexec_ before plan_clear_ to avoid prefix collision)
-        if (customId.startsWith("plan_clearexec_")) {
+        // Plan mode buttons
         if (customId.startsWith("plan_execute_")) {
           const sessionId = customId.slice("plan_execute_".length);
           const session = sessions.get(sessionId);
