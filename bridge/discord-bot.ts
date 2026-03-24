@@ -433,7 +433,7 @@ export async function archiveForumPost(
       .setTitle("✅ Session Ended")
       .setColor(COLORS.GRAY)
       .setTimestamp();
-    await thread.send({ embeds: [embed] });
+    await thread.send({ embeds: [embed], flags: [MessageFlags.SuppressNotifications] });
 
     // Archive
     await thread.setArchived(true);
