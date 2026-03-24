@@ -978,20 +978,24 @@ function isInternalMessage(text: string): boolean {
   return INTERNAL_MESSAGE_PATTERNS.some((p) => p.test(text));
 }
 
-/** Replace absolute paths with relative ones in text content for mobile readability */
+/** Replace absolute paths with relative ones in text content for mobile readability.
+ *  Case-insensitive on Windows to handle mixed-case paths. */
 function shortenPathsInText(text: string, cwd: string): string {
   if (!cwd) return text;
-  const fwd = cwd.replace(/\\/g, "/");
-  const variants = [fwd, fwd.toLowerCase()];
+  // Build all separator variants of the cwd + trailing separator
+  const variants = [
+    cwd.replace(/\\/g, "/") + "/",
+    cwd.replace(/\//g, "\\") + "\\",
+  ];
   let result = text;
   for (const prefix of variants) {
-    // Replace cwd/ with nothing (makes paths relative)
-    const withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
-    result = result.split(withSlash).join("");
+    // Case-insensitive replace: find each occurrence regardless of case
+    let idx = result.toLowerCase().indexOf(prefix.toLowerCase());
+    while (idx !== -1) {
+      result = result.slice(0, idx) + result.slice(idx + prefix.length);
+      idx = result.toLowerCase().indexOf(prefix.toLowerCase());
+    }
   }
-  // Also handle backslash variants
-  const bwd = cwd.replace(/\//g, "\\");
-  result = result.split(bwd + "\\").join("");
   return result;
 }
 
