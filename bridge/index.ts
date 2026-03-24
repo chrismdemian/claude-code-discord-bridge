@@ -28,7 +28,6 @@ import { showPromptModal, handleModalSubmit } from "./interactions/modal-handler
 import { registerCommands, handleCommand } from "./interactions/commands";
 import { handleReactionAdd } from "./interactions/reactions";
 import {
-  handlePlanClearExec,
   handlePlanExecute,
   handlePlanApprove,
   handlePlanModify,
@@ -786,16 +785,6 @@ async function main() {
 
         // Plan mode buttons (check plan_clearexec_ before plan_clear_ to avoid prefix collision)
         if (customId.startsWith("plan_clearexec_")) {
-          const sessionId = customId.slice("plan_clearexec_".length);
-          const session = sessions.get(sessionId);
-          if (!session) {
-            await interaction.reply({ content: "Session not found.", ephemeral: true });
-            return;
-          }
-          await handlePlanClearExec(interaction, session, relay);
-          return;
-        }
-
         if (customId.startsWith("plan_execute_")) {
           const sessionId = customId.slice("plan_execute_".length);
           const session = sessions.get(sessionId);
