@@ -80,9 +80,10 @@ function formatSearchOutput(text: string, cwd: string): FormattedMessage {
 
   const escaped = cleaned.replace(/```/g, "` ` `");
   const codeBlock = `\`\`\`\n${escaped}\n\`\`\``;
+  const resultLines = cleaned.split("\n").filter(l => l.trim()).length;
 
-  // Short output: send inline
-  if (codeBlock.length <= FILE_ATTACHMENT_THRESHOLD) {
+  // Short output (under 6 lines and small): send inline
+  if (codeBlock.length <= FILE_ATTACHMENT_THRESHOLD && resultLines <= 6) {
     return { webhook: "claude", content: codeBlock };
   }
 
