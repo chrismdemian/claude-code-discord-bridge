@@ -22,17 +22,6 @@
         ]
       }
     ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/permission-request.ts",
-            "timeout": 600
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
