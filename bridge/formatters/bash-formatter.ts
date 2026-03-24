@@ -55,16 +55,14 @@ export function formatBashResult(
     };
   }
 
-  // Very long output: preview + .log attachment for the full content
-  const previewLines = text.split("\n").slice(0, 40).join("\n");
-  const preview = `${previewLines}\n... (full output in attached log)`;
+  // Long output: just line count + file attachment (no inline preview dump)
   const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: "output.log",
   });
 
   return {
     webhook: "claude",
-    content: wrapCodeBlock(preview, "ansi"),
+    content: `*${lineCount} lines — see attached*`,
     files: [attachment],
   };
 }
