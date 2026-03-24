@@ -87,15 +87,15 @@ function formatSearchOutput(text: string, cwd: string): FormattedMessage {
     return { webhook: "claude", content: codeBlock };
   }
 
-  // Long output: just show count + attach full results (no preview dump)
-  const lineCount = text.split("\n").filter(l => l.trim()).length;
-  const attachment = new AttachmentBuilder(Buffer.from(text, "utf-8"), {
+  // Long output: just show count + attach filtered results
+  const attachment = new AttachmentBuilder(Buffer.from(cleaned, "utf-8"), {
     name: "results.txt",
   });
 
+  const note = removedCount > 0 ? ` (${removedCount} node_modules hidden)` : "";
   return {
     webhook: "claude",
-    content: `*${lineCount} results — see attached*`,
+    content: `*${resultLines} results${note} — see attached*`,
     files: [attachment],
   };
 }

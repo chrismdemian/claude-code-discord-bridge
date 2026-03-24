@@ -267,64 +267,12 @@ export class HookReceiver {
   private async handlePermissionRequest(
     payload: PermissionRequestHook,
   ): Promise<{ approved: boolean; allowForSession?: boolean }> {
-    const session = this.sessions.get(payload.session_id);
-    if (!session) return { approved: false };
-
-    // Build a display string for what Claude wants to do, with shortened paths
-    let description =
-      payload.description ??
-      formatPermissionDescription(payload.tool_name, payload.tool_input);
-    // Shorten absolute paths using the session's cwd
-    if (session.cwd) {
-      const cwd = session.cwd.replace(/\\/g, "/") + "/";
-      const cwdLower = cwd.toLowerCase();
-      let idx = description.toLowerCase().indexOf(cwdLower);
-      while (idx !== -1) {
-        description = description.slice(0, idx) + description.slice(idx + cwd.length);
-        idx = description.toLowerCase().indexOf(cwdLower);
-      }
-      // Also backslash variant
-      const cwdBs = session.cwd.replace(/\//g, "\\") + "\\";
-      description = description.split(cwdBs).join("");
-    }
-
-    // Build embed with Approve/Allow for Session/Deny/Context buttons
-    const { embeds, components } = buildPermissionEmbed(payload, description);
-
-    // Send via bot client (not webhook) so InteractionCreate routes to us
-    const channel = await this.client.channels.fetch(session.forumPostId);
-    if (!channel?.isThread()) return { approved: false };
-
-    const message = await (channel as ThreadChannel).send({ embeds, components });
-
-    // Send @mention to #alerts so the user gets a phone notification
-    const guild = await this.client.guilds.fetch(this.discordConfig.guildId);
-    await this.sendAlert(
-      `🔐 <@${guild.ownerId}> Permission request in <#${session.forumPostId}>`,
-    );
-
-    trackForAwaySummary("PermissionRequest", session, payload as Record<string, any>, this.awayTracker, this.guildOwnerId);
-
-    // Wait for the user to click Approve/Allow for Session/Deny, or timeout after 9 minutes
-    const result = await new Promise<PermissionResult>((resolve) => {
-      const timeout = setTimeout(() => {
-        if (this.pendingPermissions.has(payload.session_id)) {
-          console.log(`${LOG_PREFIX} Permission timed out for session ${payload.session_id.slice(0, 8)}`);
-          this.clearPendingPermission(payload.session_id);
-        }
-      }, 9 * 60 * 1000);
-
-      this.pendingPermissions.set(payload.session_id, {
-        resolve,
-        messageId: message.id,
-        forumPostId: session.forumPostId,
-        toolInput: payload.tool_input,
-        toolName: payload.tool_name,
-        timeout,
-      });
-    });
-
-    return result;
+    // The channel permission relay (server.ts) now handles Discord display with
+    // its own Allow/Deny buttons. This hook-based flow was causing duplicate
+    // and out-of-order permission embeds. Auto-approve here so the hook script
+    // unblocks immediately — the terminal dialog and channel relay are the
+    // real permission gatekeepers.
+    return { approved: true, allowForSession: true };
   }
 
   private async handleStopFailure(
