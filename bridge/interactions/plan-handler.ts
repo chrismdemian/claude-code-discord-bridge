@@ -51,10 +51,9 @@ async function executePlan(
 }
 
 /**
- * Option 1: "Yes, clear context and bypass permissions"
- * Clears context after execution, bypasses all permission prompts.
+ * Option 1: "Yes, auto-accept edits"
  */
-export async function handlePlanClearExec(
+export async function handlePlanExecute(
   interaction: ButtonInteraction,
   session: BridgeSession,
   relay: McpRelay,
@@ -63,20 +62,7 @@ export async function handlePlanClearExec(
 }
 
 /**
- * Option 2: "Yes, and bypass permissions"
- * Executes the plan, bypassing all permission prompts.
- */
-export async function handlePlanExecute(
-  interaction: ButtonInteraction,
-  session: BridgeSession,
-  relay: McpRelay,
-): Promise<void> {
-  await executePlan(interaction, session, relay, "2");
-}
-
-/**
- * Option 3: "Yes, manually approve edits"
- * Executes the plan, prompting for each permission request.
+ * Option 2: "Yes, manually approve edits"
  */
 export async function handlePlanApprove(
   interaction: ButtonInteraction,
