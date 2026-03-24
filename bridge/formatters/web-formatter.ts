@@ -1,5 +1,6 @@
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
 import { extractResultText, truncate } from "./utils";
+import { MAX_CONTENT_LENGTH } from "../constants";
 
 export function formatWebFetchCall(toolUse: ToolUseBlock): FormattedMessage {
   const url = truncate(String(toolUse.input.url ?? "?"), 800);
@@ -17,10 +18,27 @@ export function formatWebFetchResult(
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
-  // Let splitMessage in MessageSender handle chunking for long content
+  const byteCount = new TextEncoder().encode(text).length;
+  const lineCount = text.split("\n").length;
+
+  // Short response: show inline
+  if (text.length < 500 && lineCount <= 10) {
+    return { webhook: "claude", content: text };
+  }
+
+  // Medium response: collapsible
+  if (text.length <= MAX_CONTENT_LENGTH) {
+    return {
+      webhook: "claude",
+      content: text,
+      collapsedText: `*${byteCount} bytes — ${lineCount} lines*`,
+    };
+  }
+
+  // Long response: just summary
   return {
     webhook: "claude",
-    content: text,
+    content: `*${byteCount} bytes — ${lineCount} lines (too long for inline)*`,
   };
 }
 
@@ -40,9 +58,23 @@ export function formatWebSearchResult(
   const text = extractResultText(result.content);
   if (!text.trim()) return null;
 
-  // Let splitMessage in MessageSender handle chunking for long content
+  const lineCount = text.split("\n").length;
+
+  // Short: inline. Long: collapsible
+  if (text.length < 500 && lineCount <= 10) {
+    return { webhook: "claude", content: text };
+  }
+
+  if (text.length <= MAX_CONTENT_LENGTH) {
+    return {
+      webhook: "claude",
+      content: text,
+      collapsedText: `*${lineCount} search results*`,
+    };
+  }
+
   return {
     webhook: "claude",
-    content: text,
+    content: `*${lineCount} search results (too long for inline)*`,
   };
 }
