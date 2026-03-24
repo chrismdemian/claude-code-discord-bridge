@@ -1,6 +1,7 @@
 import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } from "../types";
 import { truncate } from "./utils";
 import { inferLanguage } from "./lang-map";
+import { MAX_CONTENT_LENGTH } from "../constants";
 
 export function formatWriteCall(toolUse: ToolUseBlock): FormattedMessage {
   const filePath = String(toolUse.input.file_path ?? "?");
@@ -18,21 +19,28 @@ export function formatWriteResult(
   const content = toolUse.input.content;
   const filePath = String(toolUse.input.file_path ?? "?");
 
-  // If no content in the input, nothing to show (call header already displayed)
   if (content == null) return null;
 
   const fullText = String(content);
   const lang = inferLanguage(filePath);
+  const fileName = filePath.split(/[/\\]/).pop() ?? "file.txt";
+  const lineCount = fullText.split("\n").length;
 
-  // Show first 30 lines as preview
-  const lines = fullText.split("\n");
-  const previewCount = Math.min(30, lines.length);
-  const preview = lines.slice(0, previewCount).join("\n");
-  const escaped = preview.replace(/```/g, "` ` `");
-  const suffix = lines.length > previewCount ? `\n... +${lines.length - previewCount} more lines` : "";
+  const escaped = fullText.replace(/```/g, "` ` `");
+  const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\``;
 
-  const codeBlock = `\`\`\`${lang}\n${escaped}\n\`\`\`${suffix}`;
+  // Make collapsible — same pattern as Read
+  if (codeBlock.length <= MAX_CONTENT_LENGTH) {
+    return {
+      webhook: "claude",
+      content: codeBlock,
+      collapsedText: `*${lineCount} lines written — \`${fileName}\`*`,
+    };
+  }
 
-  // splitMessage in MessageSender will handle chunking if needed
-  return { webhook: "claude", content: codeBlock };
+  // Too long — just show summary (no inline dump)
+  return {
+    webhook: "claude",
+    content: `*${lineCount} lines written — \`${fileName}\`*`,
+  };
 }

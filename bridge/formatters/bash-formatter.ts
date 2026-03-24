@@ -3,8 +3,8 @@ import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } f
 import { COLORS, MAX_EMBED_DESCRIPTION } from "../constants";
 import { extractResultText, truncate, wrapCodeBlock } from "./utils";
 
-/** Threshold for attaching output as a .log file (bytes). Below this, splitMessage handles it. */
-const FILE_ATTACHMENT_THRESHOLD = 8000;
+/** Threshold for attaching output as a .log file. Keep low to avoid multi-message floods on mobile. */
+const FILE_ATTACHMENT_THRESHOLD = 1500;
 
 export function formatBashCall(toolUse: ToolUseBlock): FormattedMessage {
   const command = truncate(String(toolUse.input.command ?? "..."), 900);
@@ -19,17 +19,19 @@ export function formatBashResult(
   result: ToolResultBlock,
   _session: BridgeSession,
 ): FormattedMessage | null {
-  const text = extractResultText(result.content);
+  let text = extractResultText(result.content);
+  // Strip "Shell cwd was reset" lines from bash output
+  text = text.split("\n").filter(l => !l.startsWith("Shell cwd was reset")).join("\n");
   if (!text.trim()) return null;
   // Filter out the "no output" placeholder — not useful in Discord
   if (/^\(Bash completed with no output\)$/i.test(text.trim())) return null;
 
-  // Error: red embed with stderr
+  // Error: red embed with stderr (truncated for mobile)
   if (result.is_error) {
     const embed = new EmbedBuilder()
       .setTitle("🔴 Command Failed")
       .setColor(COLORS.RED)
-      .setDescription(wrapCodeBlock(truncate(text, MAX_EMBED_DESCRIPTION - 20), "ansi"));
+      .setDescription(wrapCodeBlock(truncate(text, 500), "ansi"));
 
     if (toolUse.input.command) {
       embed.addFields({

@@ -1226,8 +1226,8 @@ function wireTranscriptEvents(
           suppressedToolIds.add(block.id);
           continue;
         }
-        // Skip Read headers — the collapsible result handler sends its own combined message
-        if (block.name === "Read") continue;
+        // Skip Read/Write headers — the collapsible result handler sends its own combined message
+        if (block.name === "Read" || block.name === "Write") continue;
         // No separators — keep the flow clean like Claude Code's terminal
         const formatted = formatToolCall(block);
         // Shorten absolute paths in tool call headers for mobile readability
@@ -1339,7 +1339,11 @@ function wireTranscriptEvents(
 
             const formatted = formatToolResult(toolName, toolUse, resultBlock, session);
             if (formatted) {
+              // Shorten absolute paths in ALL result content
               const messages = Array.isArray(formatted) ? formatted : [formatted];
+              for (const m of messages) {
+                if (m.content) m.content = shortenPathsInText(m.content, session.cwd);
+              }
               const singleMsg = messages.length === 1 ? messages[0] : null;
 
               // Collapsible content (e.g., Read results) — send via bot with Show/Hide button
