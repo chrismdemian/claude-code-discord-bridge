@@ -1067,6 +1067,10 @@ const INTERNAL_TOOLS = new Set([
 /** Patterns that indicate internal/system messages not meant for Discord display */
 const INTERNAL_MESSAGE_PATTERNS = [
   /^Async agent launched/i,
+  /Async agent launched successfully/i,
+  /The agent is working in the background/i,
+  /output_file:\s/i,
+  /Do not duplicate this agent/i,
   /agentId:\s*[a-f0-9-]+/i,
   /\bdo not mention to user\b/i,
   /\boutput_file:\s*/i,
