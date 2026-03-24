@@ -382,6 +382,8 @@ async function pollForMessages(sessionId: string): Promise<void> {
 const origFallback = mcp.fallbackNotificationHandler;
 mcp.fallbackNotificationHandler = async (notification) => {
   const method = (notification as { method?: string }).method;
+  // DEBUG: Log ALL incoming notifications to diagnose permission relay
+  console.error(`${PREFIX} [DEBUG] Fallback notification received: method=${method}`);
   if (method !== "notifications/claude/channel/permission_request") {
     if (origFallback) return origFallback(notification);
     return;
