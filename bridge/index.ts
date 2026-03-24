@@ -1342,18 +1342,26 @@ function wireTranscriptEvents(
 
               // Collapsible content (e.g., Read results) — send via bot with Show/Hide button
               if (singleMsg?.collapsedText && singleMsg.content) {
-                // Edit the tool call header to show the collapsed text
+                // Delete the webhook header message — we'll combine it into the collapsible
                 const headerMsgId = resultBlock.tool_use_id
                   ? toolCallMessageIds.get(resultBlock.tool_use_id)
                   : undefined;
                 if (headerMsgId) {
+                  // Edit header to combined compact line (can't delete webhook msgs, so edit)
                   const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
                   const shortHeader = shortenPathsInText(originalHeader, session.cwd);
-                  await sender.editMessage("claude", headerMsgId, threadId,
-                    `${shortHeader} — ${singleMsg.collapsedText}`);
+                  // Send combined header + collapsible as ONE bot message
+                  await sendCollapsible(
+                    client, threadId,
+                    `${shortHeader}\n${singleMsg.collapsedText}`,
+                    `${shortHeader}\n${singleMsg.content}`,
+                  );
+                  // Blank out the webhook header since we replaced it
+                  await sender.editMessage("claude", headerMsgId, threadId, shortHeader);
                   toolCallMessageIds.delete(resultBlock.tool_use_id!);
+                } else {
+                  await sendCollapsible(client, threadId, singleMsg.collapsedText, singleMsg.content);
                 }
-                await sendCollapsible(client, threadId, singleMsg.collapsedText, singleMsg.content);
               } else {
                 // Try to edit result inline into the tool call header message
                 // when it's a single short text result (no embeds/files)
