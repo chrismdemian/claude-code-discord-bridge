@@ -13,6 +13,31 @@ type WebhookName = keyof DiscordConfig["webhooks"];
 // Leave headroom for code block markers that splitMessage may append (```\n = 4 chars)
 const MAX_MESSAGE_LENGTH = 1980;
 
+/** Patterns that match common API keys and secrets */
+const SECRET_PATTERNS = [
+  /sk-ant-[a-zA-Z0-9-]{20,}/g,                      // Anthropic API keys (ant prefix, must be first)
+  /sk-[a-zA-Z0-9]{20,}/g,                           // OpenAI API keys
+  /AKIA[A-Z0-9]{16}/g,                              // AWS access key IDs
+  /ghp_[a-zA-Z0-9]{36}/g,                           // GitHub personal access tokens
+  /gho_[a-zA-Z0-9]{36}/g,                           // GitHub OAuth tokens
+  /github_pat_[a-zA-Z0-9_]{22,}/g,                  // GitHub fine-grained PATs
+  /xoxb-[a-zA-Z0-9-]+/g,                            // Slack bot tokens
+  /xoxp-[a-zA-Z0-9-]+/g,                            // Slack user tokens
+  /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g, // Private keys
+  /eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g, // JWTs
+];
+
+/** Redact secrets from text before sending to Discord */
+function redactSecrets(text: string): string {
+  let result = text;
+  for (const pattern of SECRET_PATTERNS) {
+    // Reset lastIndex for global regexes
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, "[REDACTED]");
+  }
+  return result;
+}
+
 /**
  * Sends messages to Discord via a single "Claude" webhook with automatic
  * message splitting. Differentiation between tool types happens through
@@ -46,7 +71,7 @@ export class MessageSender {
     }
 
     if (!content.trim()) return undefined;
-    const chunks = splitMessage(content, MAX_MESSAGE_LENGTH);
+    const chunks = splitMessage(redactSecrets(content), MAX_MESSAGE_LENGTH);
     let firstMessageId: string | undefined;
     for (let i = 0; i < chunks.length; i++) {
       try {
@@ -77,6 +102,15 @@ export class MessageSender {
   ): Promise<void> {
     const client = this.clients.get(webhookName);
     if (!client) return;
+
+    // Redact secrets in embed text fields
+    const desc = embed.data.description;
+    if (desc) embed.setDescription(redactSecrets(desc));
+    if (embed.data.fields) {
+      for (const field of embed.data.fields) {
+        if (field.value) field.value = redactSecrets(field.value);
+      }
+    }
 
     try {
       await client.send({ embeds: [embed], threadId, flags: MessageFlags.SuppressNotifications });
@@ -119,7 +153,7 @@ export class MessageSender {
 
     try {
       await client.editMessage(messageId, {
-        content: newContent,
+        content: redactSecrets(newContent),
         threadId,
       });
     } catch (err) {
@@ -143,7 +177,7 @@ export class MessageSender {
     try {
       await client.send({
         files: [attachment],
-        content,
+        content: content ? redactSecrets(content) : undefined,
         threadId,
         flags: MessageFlags.SuppressNotifications,
       });
