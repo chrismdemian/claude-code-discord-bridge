@@ -3,8 +3,10 @@ import type { ToolUseBlock, ToolResultBlock, BridgeSession, FormattedMessage } f
 import { COLORS, MAX_EMBED_DESCRIPTION } from "../constants";
 import { extractResultText, truncate, wrapCodeBlock } from "./utils";
 
-/** Threshold for attaching output as a .log file. Keep low to avoid multi-message floods on mobile. */
-const FILE_ATTACHMENT_THRESHOLD = 1500;
+/** Threshold for attaching output as a .log file. Keep low to avoid scrolling on mobile. */
+const FILE_ATTACHMENT_THRESHOLD = 800;
+/** Max lines before switching to file attachment regardless of byte size */
+const MAX_INLINE_LINES = 15;
 
 export function formatBashCall(toolUse: ToolUseBlock): FormattedMessage {
   const command = truncate(String(toolUse.input.command ?? "..."), 900);
@@ -44,8 +46,9 @@ export function formatBashResult(
     return { webhook: "claude", embeds: [embed] };
   }
 
-  // Short/medium output: send as content — splitMessage handles chunking
-  if (text.length <= FILE_ATTACHMENT_THRESHOLD) {
+  // Short output: send inline. Cap by both bytes and lines for mobile.
+  const lineCount = text.split("\n").length;
+  if (text.length <= FILE_ATTACHMENT_THRESHOLD && lineCount <= MAX_INLINE_LINES) {
     return {
       webhook: "claude",
       content: wrapCodeBlock(text, "ansi"),

@@ -64,8 +64,8 @@ function stripCwdPrefix(text: string, cwd: string): string {
 }
 
 function formatSearchOutput(text: string, cwd: string): FormattedMessage {
-  // Strip absolute paths down to relative
-  let cleaned = stripCwdPrefix(text, cwd);
+  // Strip absolute paths down to relative and normalize backslashes
+  let cleaned = stripCwdPrefix(text, cwd).replace(/\\/g, "/");
 
   // Filter out node_modules lines — never useful in Discord
   const lines = cleaned.split("\n");

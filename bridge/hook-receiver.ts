@@ -270,10 +270,23 @@ export class HookReceiver {
     const session = this.sessions.get(payload.session_id);
     if (!session) return { approved: false };
 
-    // Build a display string for what Claude wants to do
-    const description =
+    // Build a display string for what Claude wants to do, with shortened paths
+    let description =
       payload.description ??
       formatPermissionDescription(payload.tool_name, payload.tool_input);
+    // Shorten absolute paths using the session's cwd
+    if (session.cwd) {
+      const cwd = session.cwd.replace(/\\/g, "/") + "/";
+      const cwdLower = cwd.toLowerCase();
+      let idx = description.toLowerCase().indexOf(cwdLower);
+      while (idx !== -1) {
+        description = description.slice(0, idx) + description.slice(idx + cwd.length);
+        idx = description.toLowerCase().indexOf(cwdLower);
+      }
+      // Also backslash variant
+      const cwdBs = session.cwd.replace(/\//g, "\\") + "\\";
+      description = description.split(cwdBs).join("");
+    }
 
     // Build embed with Approve/Allow for Session/Deny/Context buttons
     const { embeds, components } = buildPermissionEmbed(payload, description);
@@ -464,8 +477,9 @@ export class HookReceiver {
     const notifType = payload.notification_type ?? "notification";
     const message = payload.message ?? "";
 
-    // Suppress idle_prompt in Discord — users can see Claude is idle from the thread
+    // Suppress noise notifications — these are handled by other UI or not useful
     if (notifType === "idle_prompt") return { ok: true };
+    if (notifType === "permission_prompt") return { ok: true };
 
     const text = `🔔 **${notifType}**: ${truncate(message, 1800)}`;
 
