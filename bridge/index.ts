@@ -1226,6 +1226,8 @@ function wireTranscriptEvents(
           suppressedToolIds.add(block.id);
           continue;
         }
+        // Skip Read headers — the collapsible result handler sends its own combined message
+        if (block.name === "Read") continue;
         // No separators — keep the flow clean like Claude Code's terminal
         const formatted = formatToolCall(block);
         // Shorten absolute paths in tool call headers for mobile readability
@@ -1342,9 +1344,6 @@ function wireTranscriptEvents(
 
               // Collapsible content (e.g., Read results) — send via bot with Show/Hide button
               if (singleMsg?.collapsedText && singleMsg.content) {
-                const headerMsgId = resultBlock.tool_use_id
-                  ? toolCallMessageIds.get(resultBlock.tool_use_id)
-                  : undefined;
                 const originalHeader = toolUse ? formatToolCall(toolUse).content ?? "" : "";
                 const shortHeader = shortenPathsInText(originalHeader, session.cwd);
 
@@ -1354,12 +1353,6 @@ function wireTranscriptEvents(
                   `${shortHeader}\n${singleMsg.collapsedText}`,
                   `${shortHeader}\n${singleMsg.content}`,
                 );
-
-                // Delete the redundant webhook header
-                if (headerMsgId) {
-                  await sender.deleteMessage("claude", headerMsgId, threadId);
-                  toolCallMessageIds.delete(resultBlock.tool_use_id!);
-                }
               } else {
                 // Try to edit result inline into the tool call header message
                 // when it's a single short text result (no embeds/files)
