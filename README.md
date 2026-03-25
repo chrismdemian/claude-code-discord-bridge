@@ -118,9 +118,15 @@ Paste your bot token when prompted. The wizard:
 - Installs the bridge service via pm2
 - Gives you a join link
 
-### 3. Join on Your Phone
+### 3. Join and Start
 
-Open the invite link on your phone. Done. Every Claude Code session you start will automatically appear as a forum post.
+Open the invite link on your phone. Then start Claude Code with the channel plugin enabled:
+
+```bash
+claude-dc
+```
+
+The setup wizard creates this alias for you. Every session you start with `claude-dc` will automatically appear as a forum post in Discord. All Claude Code flags work normally (e.g. `claude-dc --dangerously-skip-permissions`).
 
 ---
 
