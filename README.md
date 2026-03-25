@@ -13,7 +13,11 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 
 </div>
 
+<div align="center">
+
 https://github.com/user-attachments/assets/d27c10f2-c6c5-4d2d-9788-62c3f641a2fb
+
+</div>
 
 ---
 
