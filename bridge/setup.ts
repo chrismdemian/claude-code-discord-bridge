@@ -298,10 +298,17 @@ async function main() {
       try {
         if (isWindows) {
           // Detect the actual PowerShell profile path (handles OneDrive redirects, PS5 vs PS7)
-          const profileResult = Bun.spawnSync(
-            ["powershell.exe", "-NoProfile", "-Command", "$PROFILE"],
+          // Try pwsh (PS7) first, fall back to powershell.exe (PS5)
+          let profileResult = Bun.spawnSync(
+            ["pwsh", "-NoProfile", "-Command", "$PROFILE"],
             { stdout: "pipe", stderr: "pipe" },
           );
+          if (profileResult.exitCode !== 0) {
+            profileResult = Bun.spawnSync(
+              ["powershell.exe", "-NoProfile", "-Command", "$PROFILE"],
+              { stdout: "pipe", stderr: "pipe" },
+            );
+          }
           const detectedProfile = profileResult.stdout.toString().trim();
           const profilePath = detectedProfile || path.join(
             process.env.USERPROFILE || os.homedir(),
