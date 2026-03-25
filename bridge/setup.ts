@@ -297,13 +297,19 @@ async function main() {
     if (shouldAddAlias) {
       try {
         if (isWindows) {
-          // PowerShell profile
-          const profileDir = path.join(
+          // Detect the actual PowerShell profile path (handles OneDrive redirects, PS5 vs PS7)
+          const profileResult = Bun.spawnSync(
+            ["powershell.exe", "-NoProfile", "-Command", "$PROFILE"],
+            { stdout: "pipe", stderr: "pipe" },
+          );
+          const detectedProfile = profileResult.stdout.toString().trim();
+          const profilePath = detectedProfile || path.join(
             process.env.USERPROFILE || os.homedir(),
             "Documents",
-            "PowerShell",
+            "WindowsPowerShell",
+            "Microsoft.PowerShell_profile.ps1",
           );
-          const profilePath = path.join(profileDir, "Microsoft.PowerShell_profile.ps1");
+          const profileDir = path.dirname(profilePath);
           const aliasLine = `\nfunction claude-dc { claude ${channelsFlag} @args }\n`;
 
           const fs = await import("node:fs");
