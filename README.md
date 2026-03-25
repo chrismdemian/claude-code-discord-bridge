@@ -22,7 +22,7 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 **Prerequisites:** [Bun](https://bun.sh/docs/installation) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.70+
 
 ```bash
-claude plugin install discord-bridge@marketplace
+claude plugin add chrismdemian/claude-code-discord-bridge
 ```
 
 Then run the setup wizard inside Claude Code:
@@ -98,7 +98,7 @@ Enable these intents under Bot settings:
 
 ```bash
 # Install the plugin
-claude plugin install discord-bridge@marketplace
+claude plugin add chrismdemian/claude-code-discord-bridge
 
 # Run the setup wizard
 /discord-bridge:setup
