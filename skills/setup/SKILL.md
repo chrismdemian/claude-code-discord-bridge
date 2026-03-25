@@ -36,9 +36,9 @@ Walk the user through setting up the Discord bridge.
    ```
    To find the Server ID: enable **Developer Mode** in Discord settings (User Settings > Advanced > Developer Mode), then right-click the server name and click **Copy Server ID**. If no guild ID is provided, the setup script will auto-create a server or generate an OAuth2 invite URL.
 
-5. Run the setup script:
+5. Install dependencies and run the setup script:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && bun run bridge/setup.ts
+   cd ${CLAUDE_PLUGIN_ROOT} && bun install && bun run bridge/setup.ts
    ```
    This will:
    - Check that pm2 is installed
