@@ -7,7 +7,7 @@
 Every running Claude Code instance on your PC automatically appears in Discord.
 See everything Claude does. Send prompts. Approve permissions. All from your phone.
 
-<video src="assets/demo.mp4" autoplay loop muted playsinline width="300"></video>
+https://github.com/user-attachments/assets/d27c10f2-c6c5-4d2d-9788-62c3f641a2fb
 
 [![GitHub Stars](https://img.shields.io/github/stars/chrismdemian/claude-code-discord-bridge?style=flat&logo=github&cacheSeconds=300)](https://github.com/chrismdemian/claude-code-discord-bridge)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -19,7 +19,7 @@ See everything Claude does. Send prompts. Approve permissions. All from your pho
 
 ## Install
 
-**Prerequisites:** [Bun](https://bun.sh/docs/installation) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.70+
+**Prerequisites:** [Bun](https://bun.sh/docs/installation) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.80+
 
 ```bash
 claude plugin add chrismdemian/claude-code-discord-bridge
@@ -99,8 +99,11 @@ Enable these intents under Bot settings:
 ```bash
 # Install the plugin
 claude plugin add chrismdemian/claude-code-discord-bridge
+```
 
-# Run the setup wizard
+Then run the setup wizard inside Claude Code:
+
+```
 /discord-bridge:setup
 ```
 
@@ -153,7 +156,7 @@ Any message you type in a session post is sent directly to Claude Code. This inc
 ## Requirements
 
 - [Bun](https://bun.sh) v1.0+ runtime
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.70+ (requires Channels capability)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.80+ (requires Channels capability)
 - [pm2](https://pm2.keymetrics.io) process manager (`npm install -g pm2`)
 - Discord account and a [bot token](https://discord.com/developers/applications)
 
@@ -164,7 +167,7 @@ Any message you type in a session post is sent directly to Claude Code. This inc
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Sessions not appearing in Discord | Bridge service not running | `pm2 status` then `pm2 start discord-bridge` |
-| Can't send prompts from Discord | Session is read-only (no channel plugin) | Start Claude Code with the plugin installed |
+| Can't send prompts from Discord | Session is read-only (no channel plugin) | Start Claude Code with `claude-dc` (the alias created during setup) |
 | Bot shows offline | Invalid token or service stopped | Check `.env` token, restart with `pm2 restart discord-bridge` |
 | Permission buttons don't work | Plugin cache out of sync | Re-run `/discord-bridge:setup` or reinstall the plugin |
 | Duplicate forum posts on restart | Bridge lost track of existing posts | Posts will self-heal — the bridge reuses posts matching session IDs |
