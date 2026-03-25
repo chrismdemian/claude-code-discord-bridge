@@ -26,7 +26,8 @@ https://github.com/user-attachments/assets/d27c10f2-c6c5-4d2d-9788-62c3f641a2fb
 **Prerequisites:** [Bun](https://bun.sh/docs/installation) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) v2.1.80+
 
 ```bash
-claude plugin add chrismdemian/claude-code-discord-bridge
+claude plugin marketplace add chrismdemian/claude-code-discord-bridge
+claude plugin install discord-bridge@claude-code-discord-bridge
 ```
 
 Then run the setup wizard inside Claude Code:
@@ -102,7 +103,8 @@ Enable these intents under Bot settings:
 
 ```bash
 # Install the plugin
-claude plugin add chrismdemian/claude-code-discord-bridge
+claude plugin marketplace add chrismdemian/claude-code-discord-bridge
+claude plugin install discord-bridge@claude-code-discord-bridge
 ```
 
 Then run the setup wizard inside Claude Code:
