@@ -502,6 +502,12 @@ async function main() {
         });
       }
 
+      // Version endpoint
+      if (url.pathname === "/version") {
+        const pkg = await Bun.file(import.meta.dir + "/../package.json").json();
+        return Response.json({ version: pkg.version });
+      }
+
       return new Response("Not Found", { status: 404 });
     },
   });
