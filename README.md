@@ -7,13 +7,13 @@
 Every running Claude Code instance on your PC automatically appears in Discord.
 See everything Claude does. Send prompts. Approve permissions. All from your phone.
 
-https://github.com/user-attachments/assets/d27c10f2-c6c5-4d2d-9788-62c3f641a2fb
-
 [![GitHub Stars](https://img.shields.io/github/stars/chrismdemian/claude-code-discord-bridge?style=flat&logo=github&cacheSeconds=300)](https://github.com/chrismdemian/claude-code-discord-bridge)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?logo=bun)](https://bun.sh)
 
 </div>
+
+https://github.com/user-attachments/assets/d27c10f2-c6c5-4d2d-9788-62c3f641a2fb
 
 ---
 
