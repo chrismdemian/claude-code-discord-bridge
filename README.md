@@ -67,19 +67,18 @@ Full output mirroring, not just a chat bridge. Every tool call, diff, terminal o
 ## How It Works
 
 ```
-Your PC                                    Your Phone
-┌────────────────────────────────────┐    ┌──────────────┐
-│                                    │    │              │
-│  Claude Code 1  ─ transcript ─┐   │    │   Discord    │
-│  Claude Code 2  ─ transcript ─┤   │    │              │
-│  Claude Code 3  ─ transcript ─┤   │    │  #sessions   │
-│                                │   │    │  ├── fix-bug │
-│  Bridge Service  ◄─────────────┘   │    │  ├── api-v2  │
-│   ├── Discord bot  ◄── internet ───────►│  └── tests   │
-│   ├── Transcript tailer            │    │              │
-│   └── Hook receiver                │    │  #dashboard  │
-│                                    │    │              │
-└────────────────────────────────────┘    └──────────────┘
+ Your PC                              Your Phone
+┌──────────────────────────────────┐  ┌──────────────┐
+│ Claude Code 1 ── transcript ─┐   │  │              │
+│ Claude Code 2 ── transcript ─┤   │  │   Discord    │
+│ Claude Code 3 ── transcript ─┤   │  │              │
+│                               │  │  │  #sessions   │
+│ Bridge Service ◄──────────────┘  │  │  ├── fix-bug │
+│  ├─ Discord bot ◄── internet ──────►│  ├── api-v2  │
+│  ├─ Transcript tailer            │  │  └── tests   │
+│  └─ Hook receiver                │  │              │
+│                                  │  │  #dashboard  │
+└──────────────────────────────────┘  └──────────────┘
 ```
 
 Two components:
