@@ -348,8 +348,10 @@ export async function createForumPost(
   }
 
   const projectName = parseProjectName(session.cwd);
-  const shortId = session.sessionId.slice(0, 8);
-  const postName = `${projectName} — ${shortId}`.slice(0, 100);
+  // Use a readable timestamp as the initial suffix (custom-title event will rename later)
+  const startDate = new Date(parseInt(session.startedAt, 10) || Date.now());
+  const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).toLowerCase();
+  const postName = `${projectName} — ${timeStr}`.slice(0, 100);
 
   const startedAtSec = Math.floor(parseInt(session.startedAt, 10) / 1000);
 

@@ -25,6 +25,7 @@ const SECRET_PATTERNS = [
   /xoxp-[a-zA-Z0-9-]+/g,                            // Slack user tokens
   /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g, // Private keys
   /eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g, // JWTs
+  /[A-Za-z0-9]{24,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}/g, // Discord bot tokens
 ];
 
 /** Redact secrets from text before sending to Discord */
