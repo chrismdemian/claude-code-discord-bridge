@@ -16,7 +16,7 @@ Walk the user through setting up the Discord bridge.
 
    Then print this concise guide:
    ```
-   1. Click "New Application" → name it "Claude Code"
+   1. Click "New Application" → name it anything (e.g. "CC Bridge")
    2. Go to Bot → Reset Token → copy it
    3. Under Bot → Privileged Gateway Intents → enable Message Content Intent
    4. Paste your token below:
