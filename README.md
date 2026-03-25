@@ -7,6 +7,9 @@
 Every running Claude Code instance on your PC automatically appears in Discord.
 See everything Claude does. Send prompts. Approve permissions. All from your phone.
 
+<!-- TODO: Replace with your recorded GIF (15-20 seconds of output streaming) -->
+<!-- ![Demo](assets/demo.gif) -->
+
 [![GitHub Stars](https://img.shields.io/github/stars/chrismdemian/claude-code-discord-bridge?style=flat&logo=github&cacheSeconds=300)](https://github.com/chrismdemian/claude-code-discord-bridge)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?logo=bun)](https://bun.sh)
@@ -36,6 +39,9 @@ Paste your Discord bot token when prompted. The wizard creates your Discord serv
 ## What You Get
 
 Full output mirroring — not just a chat bridge. Every tool call, diff, terminal output, and file read appears in Discord, formatted for mobile.
+
+<!-- TODO: Replace with screenshot of forum view showing multiple sessions -->
+<!-- ![Sessions](assets/sessions.png) -->
 
 | Feature | Description |
 |---------|-------------|
