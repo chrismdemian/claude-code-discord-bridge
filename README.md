@@ -37,7 +37,7 @@ Paste your Discord bot token when prompted. The wizard creates your Discord serv
 
 ## What You Get
 
-Full output mirroring — not just a chat bridge. Every tool call, diff, terminal output, and file read appears in Discord, formatted for mobile.
+Full output mirroring, not just a chat bridge. Every tool call, diff, terminal output, and file read appears in Discord, formatted for mobile.
 
 <div align="center">
 <img src="assets/sessions.png" alt="Sessions forum view" width="300" />
@@ -54,7 +54,7 @@ Full output mirroring — not just a chat bridge. Every tool call, diff, termina
 | **Cost tracking** | Token usage, cost, model, and duration on every response |
 | **Smart notifications** | Only pings you when Claude actually needs input |
 | **Plan mode** | See plans as structured text, reply to approve |
-| **File drops** | Drop an image or file in Discord — Claude receives it |
+| **File drops** | Drop an image or file in Discord and Claude receives it |
 | **Dashboard** | Pinned embed showing all active sessions at a glance |
 | **Multi-instance** | Multiple simultaneous sessions, each in its own post |
 
@@ -79,8 +79,8 @@ Your PC                                        Your Phone
 
 Two components:
 
-1. **Plugin** — lightweight MCP server running inside Claude Code. Handles input (Discord to Claude) via the Channels system.
-2. **Bridge Service** — persistent process on your PC. Watches for sessions, tails transcripts, formats output for Discord. Stays alive when Claude Code exits.
+1. **Plugin**: lightweight MCP server running inside Claude Code. Handles input (Discord to Claude) via the Channels system.
+2. **Bridge Service**: persistent process on your PC. Watches for sessions, tails transcripts, formats output for Discord. Stays alive when Claude Code exits.
 
 ---
 
@@ -139,7 +139,7 @@ These are native Discord commands registered by the bot:
 
 ### Text passthrough
 
-Any message you type in a session post is sent directly to Claude Code. This includes Claude Code commands — just type them as regular messages:
+Any message you type in a session post is sent directly to Claude Code. This includes Claude Code commands, just type them as regular messages:
 
 ```
 /plan     /commit     /compact     /clear     /help
@@ -170,7 +170,7 @@ Any message you type in a session post is sent directly to Claude Code. This inc
 | Can't send prompts from Discord | Session is read-only (no channel plugin) | Start Claude Code with `claude-dc` (the alias created during setup) |
 | Bot shows offline | Invalid token or service stopped | Check `.env` token, restart with `pm2 restart discord-bridge` |
 | Permission buttons don't work | Plugin cache out of sync | Re-run `/discord-bridge:setup` or reinstall the plugin |
-| Duplicate forum posts on restart | Bridge lost track of existing posts | Posts will self-heal — the bridge reuses posts matching session IDs |
+| Duplicate forum posts on restart | Bridge lost track of existing posts | Posts self-heal by reusing posts matching session IDs |
 
 ---
 
@@ -195,7 +195,7 @@ Both. The bridge handles platform differences automatically (e.g., `taskkill` on
 
 ## Architecture
 
-Built on Anthropic's **Channels** system — the MCP capability that lets external services push messages into Claude Code sessions.
+Built on Anthropic's **Channels** system, the MCP capability that lets external services push messages into Claude Code sessions.
 
 **Output** uses transcript tailing. Claude Code writes session transcripts as JSONL files synchronously, making them a reliable real-time data source. The bridge tails these files and formats each entry for Discord.
 
@@ -208,7 +208,7 @@ Built on Anthropic's **Channels** system — the MCP capability that lets extern
 - **Session discovery:** PID files at `~/.claude/sessions/{pid}.json`, watched with chokidar
 - **Permission relay:** MCP server declares `claude/channel/permission` capability, bridge posts embeds with buttons, verdicts flow back through the relay
 - **Notification tiers:** PING (permission requests, errors), VISIBLE (status changes), SILENT (internal operations)
-- **Rate limiting:** Discord webhook limit is 5 req/2s — the bridge batches messages and uses embeds (4096 char limit vs 2000 for regular messages)
+- **Rate limiting:** Discord webhook limit is 5 req/2s. The bridge batches messages and uses embeds (4096 char limit vs 2000 for regular messages)
 
 </details>
 
@@ -231,7 +231,7 @@ bun run dev
 claude --dangerously-load-development-channels plugin:discord-bridge@claude-code-discord-bridge
 ```
 
-You'll need a Discord bot token and test server — see [Setup](#setup) above.
+You'll need a Discord bot token and test server. See [Setup](#setup) above.
 
 ---
 
