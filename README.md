@@ -72,8 +72,8 @@ Full output mirroring, not just a chat bridge. Every tool call, diff, terminal o
 │ Claude Code 1 ── transcript ─┐   │  │              │
 │ Claude Code 2 ── transcript ─┤   │  │   Discord    │
 │ Claude Code 3 ── transcript ─┤   │  │              │
-│                               │  │  │  #sessions   │
-│ Bridge Service ◄──────────────┘  │  │  ├── fix-bug │
+│                              │   │  │  #sessions   │
+│ Bridge Service ◄─────────────┘   │  │  ├── fix-bug │
 │  ├─ Discord bot ◄── internet ──────►│  ├── api-v2  │
 │  ├─ Transcript tailer            │  │  └── tests   │
 │  └─ Hook receiver                │  │              │
