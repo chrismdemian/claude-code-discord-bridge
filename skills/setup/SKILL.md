@@ -33,7 +33,7 @@ Walk the user through setting up the Discord bridge.
 4. **Add bot to a Discord server.** Tell the user:
    - Create a new Discord server (click the + in Discord's sidebar), or use an existing one
    - Then open this link to add the bot (replace CLIENT_ID with the bot's Application ID from the Developer Portal General Information page):
-     `https://discord.com/api/oauth2/authorize?client_id=CLIENT_ID&permissions=326954772544&scope=bot%20applications.commands`
+     `https://discord.com/api/oauth2/authorize?client_id=CLIENT_ID&permissions=327223208016&scope=bot%20applications.commands`
    - Alternatively, run this to get the exact URL:
      ```bash
      cd ${CLAUDE_PLUGIN_ROOT} && bun -e "
@@ -41,7 +41,7 @@ Walk the user through setting up the Discord bridge.
      config({ path: '${CLAUDE_PLUGIN_DATA}/.env' });
      const { createClient, login } from './bridge/discord-bot';
      const c = createClient(); await login(c, process.env.DISCORD_TOKEN!);
-     console.log('Add bot to your server: https://discord.com/api/oauth2/authorize?client_id=' + c.user!.id + '&permissions=326954772544&scope=bot%20applications.commands');
+     console.log('Add bot to your server: https://discord.com/api/oauth2/authorize?client_id=' + c.user!.id + '&permissions=327223208016&scope=bot%20applications.commands');
      c.destroy();
      "
      ```

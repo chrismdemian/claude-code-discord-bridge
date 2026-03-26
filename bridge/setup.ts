@@ -30,7 +30,7 @@ const pkg = await Bun.file(pkgPath).json().catch(() => ({ version: "0.1.0" }));
 const VERSION: string = pkg.version;
 
 /** Required bot permissions bitmask (Send Messages, Manage Webhooks, threads, embeds, etc.) */
-const REQUIRED_PERMISSIONS = "326954772544";
+const REQUIRED_PERMISSIONS = "327223208016";
 
 /** Build an OAuth2 bot invite URL with the correct permissions and scopes */
 function buildOAuth2Url(clientId: string): string {
