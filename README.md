@@ -113,11 +113,11 @@ Then run the setup wizard inside Claude Code:
 /discord-bridge:setup
 ```
 
-Paste your bot token when prompted. The wizard:
-- Creates a Discord server with the right structure
-- Sets the bot's name and avatar
-- Configures forum channel, dashboard, and alerts channels
+Paste your bot token when prompted. The wizard walks you through adding the bot to a Discord server, then:
+- Sets up forum channel, dashboard, and alerts channels
+- Creates webhooks and configures the bridge
 - Installs the bridge service via pm2
+- Sets up the `claude-dc` shell alias
 - Gives you a join link
 
 ### 3. Join and Start

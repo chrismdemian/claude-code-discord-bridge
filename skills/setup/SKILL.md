@@ -30,39 +30,52 @@ Walk the user through setting up the Discord bridge.
    BRIDGE_PORT=7676
    ```
 
-4. If the user also has a guild ID (server ID), add it:
-   ```
-   DISCORD_GUILD_ID=<the guild id>
-   ```
-   To find the Server ID: enable **Developer Mode** in Discord settings (User Settings > Advanced > Developer Mode), then right-click the server name and click **Copy Server ID**. If no guild ID is provided, the setup script will auto-create a server or generate an OAuth2 invite URL.
+4. **Add bot to a Discord server.** Tell the user:
+   - Create a new Discord server (click the + in Discord's sidebar), or use an existing one
+   - Then open this link to add the bot (replace CLIENT_ID with the bot's Application ID from the Developer Portal General Information page):
+     `https://discord.com/api/oauth2/authorize?client_id=CLIENT_ID&permissions=326954772544&scope=bot%20applications.commands`
+   - Alternatively, run this to get the exact URL:
+     ```bash
+     cd ${CLAUDE_PLUGIN_ROOT} && bun -e "
+     import { config } from 'dotenv';
+     config({ path: '${CLAUDE_PLUGIN_DATA}/.env' });
+     const { createClient, login } from './bridge/discord-bot';
+     const c = createClient(); await login(c, process.env.DISCORD_TOKEN!);
+     console.log('Add bot to your server: https://discord.com/api/oauth2/authorize?client_id=' + c.user!.id + '&permissions=326954772544&scope=bot%20applications.commands');
+     c.destroy();
+     "
+     ```
+   - Wait for the user to confirm the bot has been added to their server.
 
-5. Install dependencies and run the setup script:
+5. If the user has their Server ID, add `DISCORD_GUILD_ID=<id>` to the .env file. If not, that's fine — the setup script will auto-detect it if the bot is in exactly one server.
+
+6. Install dependencies and run the setup script:
    ```bash
    cd ${CLAUDE_PLUGIN_ROOT} && bun install && PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bun run bridge/setup.ts --yes
    ```
    This will:
    - Check that pm2 is installed
    - Login the bot and auto-brand it
-   - Find or create the Discord server (or print an OAuth2 invite URL if auto-creation fails)
+   - Auto-detect the Discord server (or ask for DISCORD_GUILD_ID if in multiple)
    - Set up the CLAUDE CODE category with #sessions, #dashboard, and #alerts channels
    - Create webhooks and save config
    - Post a welcome message and generate an invite link
    - Add a shell alias (`claude-dc`)
    - Start the bridge service via pm2 and verify health
 
-6. Show the user the Discord server invite link (printed by the setup script output) and suggest they join on their phone.
+7. Show the user the Discord server invite link (printed by the setup script output) and suggest they join on their phone.
 
-7. Remind the user of manual actions:
-   - **BOT AVATAR**: If the auto-set avatar failed, go to Discord Developer Portal > Your App > Bot > Upload the Claude Code crab icon
+8. Remind the user:
    - **JOIN ON PHONE**: Open the invite link on your phone
-   - **SERVER ICON**: Optionally set the "Terminal" server icon in Discord > Server Settings
+   - **START SESSIONS**: Use `claude-dc` to start Claude Code with Discord bridging
+   - **BOT AVATAR**: If the auto-set avatar failed, set it manually in the Developer Portal
 
 ## Troubleshooting
 
 - If the bot can't connect: verify the token is correct and MESSAGE CONTENT intent is enabled
 - If channels already exist: setup will reuse them (idempotent)
 - If pm2 is not installed: `npm install -g pm2` then re-run setup
-- If guild creation fails: the setup script prints an OAuth2 invite URL — open it to add the bot to your server, then re-run setup
+- If bot is not in any server: create a server in Discord, then open the OAuth2 invite URL to add the bot
 - Check bridge logs: `npx pm2 logs discord-bridge`
 - If `setUsername` fails: Discord limits bot username changes to 2 per hour. Wait and retry, or change it manually in the Developer Portal.
 - If the bridge fails to start: check `npx pm2 logs discord-bridge` for errors

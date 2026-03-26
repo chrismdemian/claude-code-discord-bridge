@@ -174,26 +174,17 @@ async function main() {
         );
         process.exit(1);
       } else {
-        // guilds.size === 0 — try to create a new server
-        console.log(`${PREFIX} No guilds found — creating "Terminal" server...`);
-        try {
-          const newGuild = await client.guilds.create({ name: "Terminal" });
-          guildId = newGuild.id;
-          console.log(
-            `${PREFIX} Created guild: "Terminal" (${guildId})`,
-          );
-        } catch (err) {
-          const oauth2Url = buildOAuth2Url(client.user!.id);
-          console.error(
-            `${PREFIX} Could not create guild automatically.\n\n` +
-              `  Open this link to add the bot to your server:\n` +
-              `  ${oauth2Url}\n\n` +
-              `  Then re-run setup.\n` +
-              `  If you need a server, create one in Discord first, then use the link above.`,
-          );
-          client.destroy();
-          process.exit(1);
-        }
+        // guilds.size === 0 — bot not in any server yet
+        const oauth2Url = buildOAuth2Url(client.user!.id);
+        console.error(
+          `${PREFIX} Bot is not in any Discord server.\n\n` +
+            `  1. Create a Discord server (or use an existing one)\n` +
+            `  2. Open this link to add the bot:\n` +
+            `     ${oauth2Url}\n` +
+            `  3. Re-run setup\n`,
+        );
+        client.destroy();
+        process.exit(1);
       }
 
       // Write guild ID back to .env so the bridge service can use it
