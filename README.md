@@ -129,6 +129,8 @@ claude-dc
 
 The setup wizard creates this alias for you. Every session you start with `claude-dc` will automatically appear as a forum post in Discord. All Claude Code flags work normally (e.g. `claude-dc --dangerously-skip-permissions`).
 
+> **Note:** You'll see a "Loading development channels" warning on startup. This is normal. Channels is a research preview feature and this plugin isn't on Anthropic's approved allowlist yet. Select "I am using this for local development" to continue.
+
 ---
 
 ## Commands
