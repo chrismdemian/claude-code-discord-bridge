@@ -1,4 +1,4 @@
-import { EmbedBuilder, type Client, type TextChannel } from "discord.js";
+import { EmbedBuilder, MessageFlags, type Client, type TextChannel } from "discord.js";
 import type { BridgeSession } from "./types";
 import { COLORS, LOG_PREFIX } from "./constants";
 import { formatDuration, parseProjectName } from "./formatters/utils";
@@ -39,7 +39,7 @@ export class Dashboard {
       } else {
         // Create a new message and pin it
         const embed = this.buildEmbed();
-        const msg = await channel.send({ embeds: [embed] });
+        const msg = await channel.send({ embeds: [embed], flags: [MessageFlags.SuppressNotifications] });
         await msg.pin().catch(() => {});
         this.dashboardMessageId = msg.id;
         this.lastEmbedJson = JSON.stringify(embed.toJSON());
@@ -159,7 +159,7 @@ export class Dashboard {
         console.log(`${LOG_PREFIX} Dashboard message deleted, recreating...`);
         this.dashboardMessageId = null;
         this.lastEmbedJson = "";
-        const newMsg = await channel.send({ embeds: [embed] });
+        const newMsg = await channel.send({ embeds: [embed], flags: [MessageFlags.SuppressNotifications] });
         await newMsg.pin().catch(() => {});
         this.dashboardMessageId = newMsg.id;
         this.lastEmbedJson = embedJson;

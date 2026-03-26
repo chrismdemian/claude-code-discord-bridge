@@ -387,6 +387,7 @@ async function main() {
             content: caption || undefined,
             files: attachments,
             threadId: session.forumPostId,
+            flags: MessageFlags.SuppressNotifications,
           });
 
           return Response.json({ ok: true, messageIds: [sent.id], filesSent: attachments.length });
