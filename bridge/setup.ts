@@ -53,6 +53,8 @@ async function promptYesNo(question: string): Promise<boolean> {
   return !answer.trim() || answer.trim().toLowerCase().startsWith("y");
 }
 
+const AUTO_YES = process.argv.includes("--yes") || process.argv.includes("-y");
+
 async function main() {
   // ── Step 0: Prerequisites ──────────────────────────────────────────
   const pm2Check = Bun.spawnSync(["npx", "pm2", "--version"], {
@@ -292,7 +294,7 @@ async function main() {
     );
     console.log("");
 
-    const shouldAddAlias = await promptYesNo("  Add a 'claude-dc' shell alias? (Y/n) ");
+    const shouldAddAlias = AUTO_YES || await promptYesNo("  Add a 'claude-dc' shell alias? (Y/n) ");
 
     if (shouldAddAlias) {
       try {
@@ -364,7 +366,7 @@ async function main() {
     let bridgeStarted = false;
 
     console.log("");
-    const shouldStartBridge = await promptYesNo("  Start the bridge service now? (Y/n) ");
+    const shouldStartBridge = AUTO_YES || await promptYesNo("  Start the bridge service now? (Y/n) ");
 
     if (shouldStartBridge) {
       // Stop any existing instance first (idempotent)

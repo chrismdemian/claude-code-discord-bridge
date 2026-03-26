@@ -18,15 +18,15 @@ export interface BridgeConfig {
 export function getPluginDataPath(): string {
   if (process.env.PLUGIN_DATA) return process.env.PLUGIN_DATA;
   if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
-  // Check common plugin data path before generic fallback
-  const pluginDataPath = path.join(
-    os.homedir(),
-    ".claude",
-    "plugins",
-    "data",
-    "discord-bridge-marketplace",
-  );
-  if (fs.existsSync(pluginDataPath)) return pluginDataPath;
+  // Check common plugin data paths (name varies by install method)
+  const pluginDataDir = path.join(os.homedir(), ".claude", "plugins", "data");
+  if (fs.existsSync(pluginDataDir)) {
+    const candidates = ["discord-bridge-claude-code-discord-bridge", "discord-bridge-marketplace"];
+    for (const name of candidates) {
+      const candidate = path.join(pluginDataDir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
   return path.join(os.homedir(), ".discord-bridge");
 }
 

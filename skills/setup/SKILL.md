@@ -38,7 +38,7 @@ Walk the user through setting up the Discord bridge.
 
 5. Install dependencies and run the setup script:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && bun install && bun run bridge/setup.ts
+   cd ${CLAUDE_PLUGIN_ROOT} && bun install && PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bun run bridge/setup.ts --yes
    ```
    This will:
    - Check that pm2 is installed
@@ -47,8 +47,8 @@ Walk the user through setting up the Discord bridge.
    - Set up the CLAUDE CODE category with #sessions, #dashboard, and #alerts channels
    - Create webhooks and save config
    - Post a welcome message and generate an invite link
-   - Prompt to add a shell alias (`claude-dc`)
-   - Prompt to start the bridge service via pm2 and verify health
+   - Add a shell alias (`claude-dc`)
+   - Start the bridge service via pm2 and verify health
 
 6. Show the user the Discord server invite link (printed by the setup script output) and suggest they join on their phone.
 
