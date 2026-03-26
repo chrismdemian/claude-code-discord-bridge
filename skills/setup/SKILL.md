@@ -32,19 +32,11 @@ Walk the user through setting up the Discord bridge.
 
 4. **Add bot to a Discord server.** Tell the user:
    - Create a new Discord server (click the + in Discord's sidebar), or use an existing one
-   - Then open this link to add the bot (replace CLIENT_ID with the bot's Application ID from the Developer Portal General Information page):
-     `https://discord.com/api/oauth2/authorize?client_id=CLIENT_ID&permissions=327223208016&scope=bot%20applications.commands`
-   - Alternatively, run this to get the exact URL:
-     ```bash
-     cd ${CLAUDE_PLUGIN_ROOT} && bun -e "
-     import { config } from 'dotenv';
-     config({ path: '${CLAUDE_PLUGIN_DATA}/.env' });
-     const { createClient, login } from './bridge/discord-bot';
-     const c = createClient(); await login(c, process.env.DISCORD_TOKEN!);
-     console.log('Add bot to your server: https://discord.com/api/oauth2/authorize?client_id=' + c.user!.id + '&permissions=327223208016&scope=bot%20applications.commands');
-     c.destroy();
-     "
-     ```
+   - In the Developer Portal, go to **OAuth2** (left sidebar)
+   - Under **OAuth2 URL Generator**: check `bot` and `applications.commands` scopes
+   - Under **Bot Permissions**: check `Administrator`
+   - Copy the **Generated URL** at the bottom and open it in your browser
+   - Select your server and authorize
    - Wait for the user to confirm the bot has been added to their server.
 
 5. If the user has their Server ID, add `DISCORD_GUILD_ID=<id>` to the .env file. If not, that's fine — the setup script will auto-detect it if the bot is in exactly one server.
