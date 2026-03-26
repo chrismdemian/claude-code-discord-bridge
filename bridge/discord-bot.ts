@@ -246,22 +246,32 @@ export async function setupServer(
     }
   }
 
+  // Load avatar for webhook branding
+  const avatarPath = path.resolve(import.meta.dir, "..", "assets", "claude-code-avatar.png");
+  const avatarFile = Bun.file(avatarPath);
+  const webhookAvatar = (await avatarFile.exists())
+    ? Buffer.from(await avatarFile.arrayBuffer())
+    : undefined;
+
   let claudeWebhook = existingWebhooks.find((w) => w.name === botUsername);
   if (!claudeWebhook) {
     // Also check for the old hardcoded "Claude" name and rename it
     const legacyClaude = existingWebhooks.find((w) => w.name === "Claude");
     if (legacyClaude) {
       console.log(`${LOG_PREFIX} Renaming webhook "Claude" → "${botUsername}"`);
-      claudeWebhook = await legacyClaude.edit({ name: botUsername });
+      claudeWebhook = await legacyClaude.edit({ name: botUsername, avatar: webhookAvatar });
     } else {
       console.log(`${LOG_PREFIX} Creating webhook: ${botUsername}`);
-      claudeWebhook = await forumChannel.createWebhook({ name: botUsername });
+      claudeWebhook = await forumChannel.createWebhook({ name: botUsername, avatar: webhookAvatar });
     }
+  } else if (webhookAvatar && !claudeWebhook.avatarURL()) {
+    // Webhook exists but has no avatar — set it
+    await claudeWebhook.edit({ avatar: webhookAvatar }).catch(() => {});
   }
   if (!claudeWebhook.token) {
     console.warn(`${LOG_PREFIX} Webhook "${botUsername}" has no token — recreating`);
     await claudeWebhook.delete();
-    claudeWebhook = await forumChannel.createWebhook({ name: botUsername });
+    claudeWebhook = await forumChannel.createWebhook({ name: botUsername, avatar: webhookAvatar });
   }
 
   const discordConfig: DiscordConfig = {
