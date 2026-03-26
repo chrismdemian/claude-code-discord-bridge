@@ -36,7 +36,7 @@ Then run the setup wizard inside Claude Code:
 /discord-bridge:setup
 ```
 
-Paste your Discord bot token when prompted. The wizard creates your Discord server, configures channels, installs the bridge service, and gives you a join link. Takes about 2 minutes.
+Paste your Discord bot token when prompted. The wizard walks you through creating a server, configures channels, installs the bridge service, and sets up a `claude-dc` alias. Takes about 2 minutes.
 
 ---
 
@@ -118,11 +118,10 @@ Paste your bot token when prompted. The wizard walks you through adding the bot 
 - Creates webhooks and configures the bridge
 - Installs the bridge service via pm2
 - Sets up the `claude-dc` shell alias
-- Gives you a join link
 
-### 3. Join and Start
+### 3. Start
 
-Open the invite link on your phone. Then start Claude Code with the channel plugin enabled:
+Open a new terminal and start Claude Code with the channel plugin enabled:
 
 ```bash
 claude-dc
