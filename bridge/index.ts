@@ -541,7 +541,6 @@ async function main() {
       if (relay.hasPlugin(session.sessionId)) {
         relay.enqueueMessage(session.sessionId, message.content, message.author.id);
         session.lastInputSource = "discord";
-        await message.react("✅").catch(() => {});
         startTypingIndicator(client, session);
       } else if (message.attachments.size === 0) {
         // Only show read-only notice if there were no attachments (file handler already responds)
