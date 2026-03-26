@@ -452,21 +452,18 @@ async function main() {
     console.log(`  Config:     ${path.join(dataPath, "discord.json")}`);
     console.log(`  Env:        ${envPath}`);
     console.log("");
-    console.log(`  Invite:     ${inviteUrl}`);
-    console.log(`  Bot Invite: ${oauth2Url}`);
-    console.log(`              (use to add bot to additional servers)`);
-    console.log("");
     console.log("  Next steps:");
-    console.log("  1. Open the invite link on your phone to join the server");
     if (bridgeStarted) {
-      console.log("  2. Start Claude Code with:  claude-dc");
+      console.log("  1. Open a new terminal and run:  claude-dc");
     } else {
-      console.log("  2. Start the bridge service:");
+      console.log("  1. Start the bridge service:");
       console.log(`     npx pm2 start ${bridgeIndexPath} --name discord-bridge --interpreter bun`);
       console.log("     npx pm2 save && npx pm2 startup");
-      console.log("  3. Verify: curl http://localhost:7676/health");
-      console.log("  4. Start Claude Code with:  claude-dc");
+      console.log("  2. Open a new terminal and run:  claude-dc");
     }
+    console.log("");
+    console.log("  Your Discord server is ready. Sessions will appear in #sessions");
+    console.log("  as forum posts when you start Claude Code with claude-dc.");
     console.log("");
     console.log("═══════════════════════════════════════════════════════");
 
